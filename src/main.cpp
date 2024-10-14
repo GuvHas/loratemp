@@ -85,7 +85,7 @@ void loop() {
   display.drawString(90, 0, String(counter));
 
   //String NodeId = WiFi.macAddress();
-  //float temp = intTemperatureRead();
+  
   String NodeId = "GarageTemp";
   float temp = dht_temp();
   float hum = dht_hum();
@@ -94,7 +94,7 @@ void loop() {
   LoRa.beginPacket();
   // Build json string to send
   String msg = "{\"name\":\"ESP32TEMP\",\"id\":\"" + NodeId + "\",\"tempc\":" + String(temp) + ", \"hum:\":" + String(hum) +"}";
-  //String msg = "{\"topic\":\"home/DHTtoMQTT/\",\"ESP32TEMP\",\"id\":\"" + NodeId + "\",\"tempc\":" + String(temp) + ", \"hum:\":" + String(hum) +", \"packet:\","+ String(counter) +"}";
+  
   // Send json string
   LoRa.print(msg);
   LoRa.endPacket();
@@ -110,10 +110,9 @@ void loop() {
 
   counter++;
 
+  //Blinking green led
   digitalWrite(25, HIGH); // turn the LED on (HIGH is the voltage level)
-  //Serial.print("HIGH");
-  delay(1000); // wait for a second
+    delay(1000); // wait for a second
   digitalWrite(25, LOW); // turn the LED off by making the voltage LOW
-  //Serial.print("LOW");
-  //delay(60000); // wait for 60 seconds
+  
 }
