@@ -8,7 +8,7 @@
 #include "rom/ets_sys.h"
 #include "soc/rtc_cntl_reg.h"
 #include "soc/sens_reg.h"
-#include <SimpleDHT.h>
+#include <DHT.h>
 
 #define SCK  5 // GPIO5  -- SX1278's SCK
 #define MISO 19 // GPIO19 -- SX1278's MISnO
@@ -16,42 +16,34 @@
 #define SS   18 // GPIO18 -- SX1278's CS
 #define RST  23 // GPIO14 -- SX1278's RESET
 #define DI0  26 // GPIO26 -- SX1278's IRQ(Interrupt Request)
-#define BAND 868E6
+#define BAND 868E6 // LoRa band used
 
+#define DHTTYPE DHT22 //Sensor used
+#define pinDHT22 13 //DHTPin used on board
 unsigned int counter = 0;
 
-//dht pin on ttgo board
-byte pinDHT22 = 13;
+float temp;
+float hum;
 
-float temperature = 0;
-float humidity = 0;
-SimpleDHT22 dht22;
+DHT dht_test(pinDHT22, DHTTYPE);
 
 SSD1306 display(0x3c, 21, 22);
-String rssi = "RSSI --";
-String packSize = "--";
-String packet;
 
-float dht_temp(){
-  dht22.read2(pinDHT22, &temperature, &humidity, NULL);
-  float temperature_c = temperature;
-  return temperature_c;
-}
-float dht_hum(){
-  dht22.read2(pinDHT22, &temperature, &humidity, NULL);
-  float hum = humidity;
-  return hum;
+//subroutines
+void get_temperature_and_humidity() {  
+   temp = dht_test.readTemperature();
+   hum = dht_test.readHumidity();         
+   if (isnan(temp) || isnan(hum)) {              // Check if any reads failed and exit early (to try again).
+    Serial.println(F("Failed to read from DHT sensor!"));
+    return;
+   }  
 }
 
-
-void setup() {
-  //pinMode(16,OUTPUT);
-  pinMode(25,OUTPUT);
-
-  //digitalWrite(16, LOW); // set GPIO16 low to reset OLED
-  //delay(50);
-  //digitalWrite(16, HIGH); // while OLED is running, must set GPIO16 in high
-
+void setup() {  
+  pinMode(25,OUTPUT); //Output for green LED
+  pinMode(13,INPUT); //Input for DHT-sensor
+  dht_test.begin();
+  
   Serial.begin(115200);
   while (!Serial)
     ;
@@ -75,7 +67,6 @@ void setup() {
 }
 
 
-
 void loop() {
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -84,35 +75,27 @@ void loop() {
   display.drawString(0, 0, "Sending packet: ");
   display.drawString(90, 0, String(counter));
 
-  //String NodeId = WiFi.macAddress();
+  get_temperature_and_humidity();
+
+  String NodeId = "GarageTemp"; //Friendly name for the device
   
-  String NodeId = "GarageTemp";
-  float temp = dht_temp();
-  float hum = dht_hum();
-  
-  // send packet
-  LoRa.beginPacket();
-  // Build json string to send
-  String msg = "{\"name\":\"ESP32TEMP\",\"id\":\"" + NodeId + "\",\"tempc\":" + String(temp) + ", \"hum:\":" + String(hum) +"}";
-  
-  // Send json string
-  LoRa.print(msg);
+  LoRa.beginPacket(); // send packet
+  String msg = "{\"name\":\"ESP32TEMP\",\"id\":\"" + NodeId + "\",\"tempc\":" + String(temp) + ", \"hum:\":" + String(hum) +"}"; // Build json string to send
+  digitalWrite(25, HIGH); // turn the green LED on (HIGH is the voltage level)
+  LoRa.print(msg); // Send json string
   LoRa.endPacket();
-  
-  Serial.println(msg);
+  delay(1000); // wait for a second  
+  digitalWrite(25, LOW); // turn the green LED off by making the voltage LOW
+  Serial.println(msg); //print the message to console
   
   display.drawString(0, 15, String(NodeId));
   display.drawString(0, 30, "tempc: " + String(temp) + " C");
   display.drawString(0, 45, "hum: " + String(hum) + " %");
   display.display();
   
-  delay(5000);
+  delay(5000); //wait for 5 second
 
   counter++;
-
-  //Blinking green led
-  digitalWrite(25, HIGH); // turn the LED on (HIGH is the voltage level)
-    delay(1000); // wait for a second
-  digitalWrite(25, LOW); // turn the LED off by making the voltage LOW
   
 }
+
