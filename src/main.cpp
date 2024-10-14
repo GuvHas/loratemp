@@ -29,7 +29,7 @@ DHT dht_test(pinDHT22, DHTTYPE);
 
 SSD1306 display(0x3c, 21, 22);
 
-//subroutines
+//subroutine
 void get_temperature_and_humidity() {  
    temp = dht_test.readTemperature();
    hum = dht_test.readHumidity();         
@@ -80,7 +80,7 @@ void loop() {
   String NodeId = "GarageTemp"; //Friendly name for the device
   
   LoRa.beginPacket(); // send packet
-  String msg = "{\"name\":\"ESP32TEMP\",\"id\":\"" + NodeId + "\",\"tempc\":" + String(temp) + ", \"hum:\":" + String(hum) +"}"; // Build json string to send
+  String msg = "{\"name\":\"DHT_LoRa_Sensor\",\"id\":\"" + NodeId + "\",\"temperature\":" + String(temp) + ", \"humidity\":" + String(hum) +"}"; // Build json string to send
   digitalWrite(25, HIGH); // turn the green LED on (HIGH is the voltage level)
   LoRa.print(msg); // Send json string
   LoRa.endPacket();
@@ -98,4 +98,3 @@ void loop() {
   counter++;
   
 }
-
