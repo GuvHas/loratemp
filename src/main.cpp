@@ -28,6 +28,7 @@ float hum;
 DHT dhtsensor(pinDHT22, DHTTYPE);
 
 SSD1306 display(0x3c, 21, 22);
+WiFiManager wifiManager;
 
 //subroutines
 void get_temperature_and_humidity() {  
@@ -51,18 +52,12 @@ void setup() {
   pinMode(25,OUTPUT); //Output for green LED
   pinMode(13,INPUT); //Input for DHT-sensor
   dhtsensor.begin();
-  WiFiManager wifiManager;
   Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
   while (!Serial)
     ;
   Serial.println();
   Serial.println("LoRa Sender Test");
-  wifiManager.autoConnect("ESPTemp_AP");
-  //if(!wifiManager.autoConnect("ESPTemp_AP")) {
-  //    Serial.println("Failed to connect to WiFi. Please restart.");
-  //    ESP.restart();
-  //}
-  Serial.println("Connected to WiFi!");
   SPI.begin(SCK, MISO, MOSI, SS);
   LoRa.setPins(SS, RST, DI0);
   if (!LoRa.begin(BAND)) {
@@ -75,7 +70,15 @@ void setup() {
   display.init();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);  
-  
+  //wifiManager.autoConnect("ESPTemp_AP");
+  wifiManager.setConfigPortalBlocking(false);
+  wifiManager.setConfigPortalTimeout(60);
+  if(wifiManager.autoConnect("ESPTemp_AP")) {
+    Serial.println("Connected");
+  }
+  else {
+        Serial.println("Configportal running.");
+  }  
   delay(1500);
 }
 
@@ -110,5 +113,5 @@ void loop() {
   delay(5000); //wait for 5 second
 
   counter++;
-  
+  wifiManager.process(); 
 }
