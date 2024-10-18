@@ -1,5 +1,6 @@
+https://github.com/sandeepmistry/arduino-LoRa.git#f4a1d27
+winlinvip/SimpleDHT@^1.0.15
+https://github.com/tzapu/WiFiManager.git
 https://github.com/ThingPulse/esp8266-oled-ssd1306.git#f96fd6a
 adafruit/Adafruit Unified Sensor@^1.1.14
 adafruit/DHT sensor library@^1.4.6
-https://github.com/sandeepmistry/arduino-LoRa.git#f4a1d27
-winlinvip/SimpleDHT@^1.0.15
