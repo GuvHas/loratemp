@@ -28,7 +28,8 @@ float hum;
 DHT dhtsensor(pinDHT22, DHTTYPE);
 
 SSD1306 display(0x3c, 21, 22);
-WiFiManager wifiManager;
+WiFiManager wm;
+
 
 //subroutines
 void get_temperature_and_humidity() {  
@@ -51,9 +52,19 @@ void blink_led() {
 void setup() {  
   pinMode(25,OUTPUT); //Output for green LED
   pinMode(13,INPUT); //Input for DHT-sensor
+  WiFi.mode(WIFI_STA);
+
   dhtsensor.begin();
   Serial.begin(115200);
-  WiFi.mode(WIFI_STA);
+  wm.setConfigPortalBlocking(false);
+  wm.setConfigPortalTimeout(50000);
+  if (wm.autoConnect("ESPTemp")) {
+    Serial.println("connected to AP");
+  }
+  else {
+    Serial.println("Configportal running");
+  }
+    
   while (!Serial)
     ;
   Serial.println();
@@ -70,29 +81,20 @@ void setup() {
   display.init();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);  
-  //wifiManager.autoConnect("ESPTemp_AP");
-  wifiManager.setConfigPortalBlocking(false);
-  wifiManager.setConfigPortalTimeout(60);
-  if(wifiManager.autoConnect("ESPTemp_AP")) {
-    Serial.println("Connected");
-  }
-  else {
-        Serial.println("Configportal running.");
-  }  
+    
   delay(1500);
 }
 
 
 void loop() {
   display.clear();
+  wm.process();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
 
   display.drawString(0, 0, "Sending packet: ");
   display.drawString(90, 0, String(counter));
   
-  
-
   get_temperature_and_humidity();
 
   String NodeId = "GarageTemp"; //Friendly name for the device
@@ -111,7 +113,5 @@ void loop() {
   display.display();
   
   delay(5000); //wait for 5 second
-
-  counter++;
-  wifiManager.process(); 
+  counter++;  
 }
