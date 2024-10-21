@@ -21,9 +21,9 @@
 #define pinDHT22 13 //DHTPin used on board
 
 unsigned int counter = 0;
-
 float temp;
 float hum;
+String NodeId = "GarageTemp"; //Friendly name for the device, also used for setting name of AP
 
 DHT dhtsensor(pinDHT22, DHTTYPE);
 
@@ -48,17 +48,31 @@ void blink_led() {
   return;
 }
 
+void oled_display() {
+  display.clear();  
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.setFont(ArialMT_Plain_10);
+
+  display.drawString(0, 0, "Sending packet: ");
+  display.drawString(90, 0, String(counter));
+  display.drawString(0, 12, String(NodeId));
+  display.drawString(0, 24, "temp: " + String(temp) + " C");
+  display.drawString(0, 36, "hum: " + String(hum) + " %");
+  display.drawString(0, 48, "IP: " + String(WiFi.localIP().toString()));
+  display.display();
+}
 
 void setup() {  
   pinMode(25,OUTPUT); //Output for green LED
   pinMode(13,INPUT); //Input for DHT-sensor
   WiFi.mode(WIFI_STA);
-
+  String APName;
+  APName = NodeId + "AP";
   dhtsensor.begin();
   Serial.begin(115200);
   wm.setConfigPortalBlocking(false);
   wm.setConfigPortalTimeout(50000);
-  if (wm.autoConnect("ESPTemp")) {
+  if (wm.autoConnect((const char*)APName.c_str())) {
     Serial.println("connected to AP");
   }
   else {
@@ -87,17 +101,11 @@ void setup() {
 
 
 void loop() {
-  display.clear();
+  oled_display();
   wm.process();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setFont(ArialMT_Plain_10);
 
-  display.drawString(0, 0, "Sending packet: ");
-  display.drawString(90, 0, String(counter));
-  
   get_temperature_and_humidity();
-
-  String NodeId = "GarageTemp"; //Friendly name for the device
+  
   //String IP = WiFi.localIP();
   LoRa.beginPacket(); // send packet
   String msg = "{\"name\":\"DHT_LoRa_Sensor\",\"id\":\"" + NodeId + "\",\"temperature\":" + String(temp) + ", \"humidity\":" + String(hum) +"}"; // Build json string to send
@@ -105,12 +113,6 @@ void loop() {
   LoRa.endPacket();
   blink_led(); //blink led after transmission
   Serial.println(msg); //print the message to console
-  
-  display.drawString(0, 12, String(NodeId));
-  display.drawString(0, 24, "temp: " + String(temp) + " C");
-  display.drawString(0, 36, "hum: " + String(hum) + " %");
-  display.drawString(0, 48, "IP: " + String(WiFi.localIP().toString()));
-  display.display();
   
   delay(5000); //wait for 5 second
   counter++;  
