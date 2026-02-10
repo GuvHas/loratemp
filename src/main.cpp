@@ -24,14 +24,19 @@ const int SLEEP_MINUTES = 5;
 #define LED_PIN  25
 #define BAT_PIN  35  // GPIO35 is usually connected to the battery divider
 
+// OLED Display (I2C)
+#define SDA_PIN  21
+#define SCL_PIN  22
+
 // DHT Sensor
-#define DHTPIN 13
-#define DHTTYPE DHT22
+#define DHTPIN   13
+#define DHTTYPE  DHT22
+#define DHT_MAX_RETRIES 3
 
 // ==========================================
 //             GLOBAL OBJECTS
 // ==========================================
-SSD1306 display(0x3C, 21, 22);
+SSD1306 display(0x3C, SDA_PIN, SCL_PIN);
 DHT dht(DHTPIN, DHTTYPE);
 
 // Store boot count in RTC memory
@@ -42,15 +47,17 @@ RTC_DATA_ATTR int bootCount = 0;
 // ==========================================
 
 float getBatteryVoltage() {
-  // 1. Read the Analog Value (0 - 4095)
-  int reading = analogRead(BAT_PIN);
-  
-  // 2. Calculate Voltage
-  // 3.3V reference / 4095 steps * 2 (Voltage Divider)
-  float voltage = ((float)reading / 4095.0) * 3.3 * 2.0;
-  
-  // Optional: Small calibration correction (e.g. +0.1) if reading is low
-  // voltage += 0.1; 
+  // Average multiple ADC samples to reduce noise
+  const int samples = 10;
+  long total = 0;
+  for (int i = 0; i < samples; i++) {
+    total += analogRead(BAT_PIN);
+    delay(10);
+  }
+  float reading = (float)total / samples;
+
+  // 3.3V reference / 4095 steps * 2 (voltage divider ratio)
+  float voltage = (reading / 4095.0f) * 3.3f * 2.0f;
 
   return voltage;
 }
@@ -61,7 +68,7 @@ void goToSleep() {
   display.displayOff();
   digitalWrite(LED_PIN, LOW);
   
-  uint64_t sleepTime = SLEEP_MINUTES * 60 * 1000000ULL;
+  uint64_t sleepTime = (uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL;
   esp_sleep_enable_timer_wakeup(sleepTime);
   esp_deep_sleep_start();
 }
@@ -72,6 +79,7 @@ void setup() {
   
   // Standard analog read setup
   analogReadResolution(12);
+  analogSetPinAttenuation(BAT_PIN, ADC_11db);
 
   bootCount++;
   Serial.println("\n\n--- Boot #" + String(bootCount) + " ---");
@@ -86,17 +94,23 @@ void setup() {
   dht.begin();
   delay(2000); // Allow sensor and voltage to stabilize
 
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
-  float v = getBatteryVoltage(); // <--- Get Battery Voltage
-
-  // Basic error check for DHT
-  if (isnan(t) || isnan(h)) {
-    Serial.println("DHT Read Failed!");
-    // We send 0.0 for temp/hum so we can still see the battery report in HA
-    t = 0.0;
-    h = 0.0;
+  // Retry DHT reads — the sensor often fails on the first attempt after deep sleep
+  float t = NAN;
+  float h = NAN;
+  for (int attempt = 0; attempt < DHT_MAX_RETRIES; attempt++) {
+    t = dht.readTemperature();
+    h = dht.readHumidity();
+    if (!isnan(t) && !isnan(h)) break;
+    Serial.println("DHT read attempt " + String(attempt + 1) + " failed, retrying...");
+    delay(2000);
   }
+
+  bool dhtOk = !isnan(t) && !isnan(h);
+  if (!dhtOk) {
+    Serial.println("DHT Read Failed after " + String(DHT_MAX_RETRIES) + " attempts!");
+  }
+
+  float v = getBatteryVoltage();
 
   // Init LoRa
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
@@ -108,23 +122,40 @@ void setup() {
     goToSleep();
   }
 
-  // Build JSON: {"id":"GarageTemp","t":22.5,"h":50.2,"v":4.12}
-  String msg = "{\"id\":\"" + NodeId + "\",\"t\":" + String(t) + ",\"h\":" + String(h) + ",\"v\":" + String(v) + "}";
-  
+  // Build JSON payload using snprintf to avoid String heap fragmentation
+  char msg[128];
+  if (dhtOk) {
+    snprintf(msg, sizeof(msg),
+             "{\"id\":\"%s\",\"t\":%.1f,\"h\":%.1f,\"v\":%.2f}",
+             NodeId.c_str(), t, h, v);
+  } else {
+    // Omit t/h fields so the receiver knows the sensor failed
+    snprintf(msg, sizeof(msg),
+             "{\"id\":\"%s\",\"v\":%.2f,\"err\":\"dht\"}",
+             NodeId.c_str(), v);
+  }
+
   Serial.print("Sending: ");
   Serial.println(msg);
 
   digitalWrite(LED_PIN, HIGH);
   LoRa.beginPacket();
   LoRa.print(msg);
-  LoRa.endPacket();
+  int loraResult = LoRa.endPacket();
+  if (loraResult == 0) {
+    Serial.println("LoRa transmission failed!");
+  }
   
   // Visual Feedback
   display.clear();
   display.drawString(0, 0, "Sent Data:");
-  display.drawString(0, 15, "T: " + String(t) + "C");
-  display.drawString(0, 30, "H: " + String(h) + "%");
-  display.drawString(0, 45, "Bat: " + String(v) + "V"); // <--- Show on screen
+  if (dhtOk) {
+    display.drawString(0, 15, "T: " + String(t, 1) + "C");
+    display.drawString(0, 30, "H: " + String(h, 1) + "%");
+  } else {
+    display.drawString(0, 15, "DHT: FAILED");
+  }
+  display.drawString(0, 45, "Bat: " + String(v, 2) + "V");
   display.display();
   
   delay(1000); 
