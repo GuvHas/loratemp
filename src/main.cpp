@@ -126,6 +126,7 @@ void setup() {
     goToSleep();
   }
   LoRa.setSpreadingFactor(LORA_SF);
+  LoRa.enableCrc();
 
   // Build JSON payload using snprintf to avoid String heap fragmentation
   bool lowBat = v < LOW_BAT_VOLTAGE;
