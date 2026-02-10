@@ -8,8 +8,11 @@
 // ==========================================
 //              USER CONFIGURATION
 // ==========================================
-const String NodeId = "GarageTemp"; 
-const int SLEEP_MINUTES = 5;         
+const char* NodeId = "GarageTemp";
+const int SLEEP_MINUTES = 5;
+const int DISPLAY_SECONDS = 2;       // How long to show data on OLED before sleep
+const float LOW_BAT_VOLTAGE = 3.3f;  // Voltage threshold for low battery warning
+const int LORA_SF = 9;               // LoRa spreading factor (7-12, higher = more range)
 
 // ==========================================
 //           HARDWARE PINS (TTGO V1.6)
@@ -64,6 +67,7 @@ float getBatteryVoltage() {
 
 void goToSleep() {
   Serial.println("Going to sleep...");
+  Serial.flush(); // Ensure serial output completes before sleep
   LoRa.end();
   display.displayOff();
   digitalWrite(LED_PIN, LOW);
@@ -121,18 +125,19 @@ void setup() {
     delay(1000);
     goToSleep();
   }
+  LoRa.setSpreadingFactor(LORA_SF);
 
   // Build JSON payload using snprintf to avoid String heap fragmentation
-  char msg[128];
+  bool lowBat = v < LOW_BAT_VOLTAGE;
+  char msg[160];
   if (dhtOk) {
     snprintf(msg, sizeof(msg),
-             "{\"id\":\"%s\",\"t\":%.1f,\"h\":%.1f,\"v\":%.2f}",
-             NodeId.c_str(), t, h, v);
+             "{\"id\":\"%s\",\"t\":%.1f,\"h\":%.1f,\"v\":%.2f,\"boot\":%d%s}",
+             NodeId, t, h, v, bootCount, lowBat ? ",\"lb\":1" : "");
   } else {
-    // Omit t/h fields so the receiver knows the sensor failed
     snprintf(msg, sizeof(msg),
-             "{\"id\":\"%s\",\"v\":%.2f,\"err\":\"dht\"}",
-             NodeId.c_str(), v);
+             "{\"id\":\"%s\",\"v\":%.2f,\"boot\":%d,\"err\":\"dht\"%s}",
+             NodeId, v, bootCount, lowBat ? ",\"lb\":1" : "");
   }
 
   Serial.print("Sending: ");
@@ -143,22 +148,29 @@ void setup() {
   LoRa.print(msg);
   int loraResult = LoRa.endPacket();
   if (loraResult == 0) {
-    Serial.println("LoRa transmission failed!");
+    Serial.println("LoRa TX failed, retrying...");
+    delay(100);
+    LoRa.beginPacket();
+    LoRa.print(msg);
+    loraResult = LoRa.endPacket();
+    if (loraResult == 0) {
+      Serial.println("LoRa TX retry also failed!");
+    }
   }
-  
+
   // Visual Feedback
   display.clear();
-  display.drawString(0, 0, "Sent Data:");
+  display.drawString(0, 0, loraResult ? "Sent OK:" : "TX FAILED:");
   if (dhtOk) {
-    display.drawString(0, 15, "T: " + String(t, 1) + "C");
-    display.drawString(0, 30, "H: " + String(h, 1) + "%");
+    display.drawString(0, 15, "T: " + String(t, 1) + " \xb0" + "C");
+    display.drawString(0, 30, "H: " + String(h, 1) + " %");
   } else {
     display.drawString(0, 15, "DHT: FAILED");
   }
-  display.drawString(0, 45, "Bat: " + String(v, 2) + "V");
+  display.drawString(0, 45, "Bat: " + String(v, 2) + "V" + (lowBat ? " LOW!" : ""));
   display.display();
-  
-  delay(1000); 
+
+  delay(DISPLAY_SECONDS * 1000);
   goToSleep();
 }
 
