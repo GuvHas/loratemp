@@ -4,6 +4,8 @@
 #include <Wire.h>
 #include "SSD1306.h"
 #include <DHT.h>
+#include <WiFi.h>
+#include <esp_bt.h>
 
 // ==========================================
 //              USER CONFIGURATION
@@ -13,6 +15,11 @@ const int SLEEP_MINUTES = 5;
 const int DISPLAY_SECONDS = 2;       // How long to show data on OLED before sleep
 const float LOW_BAT_VOLTAGE = 3.3f;  // Voltage threshold for low battery warning
 const int LORA_SF = 9;               // LoRa spreading factor (7-12, higher = more range)
+
+// Power saving options
+const int LORA_TX_POWER = 14;        // TX power in dBm (2-20, lower = less range but saves battery)
+const int DISPLAY_EVERY_N = 12;      // Show OLED every Nth boot (12 = ~1hr at 5min sleep). 1 = always
+const int CPU_MHZ = 80;              // CPU frequency (80 is plenty for sensor work, default 240)
 
 // ==========================================
 //           HARDWARE PINS (TTGO V1.6)
@@ -55,7 +62,7 @@ float getBatteryVoltage() {
   long total = 0;
   for (int i = 0; i < samples; i++) {
     total += analogRead(BAT_PIN);
-    delay(10);
+    delay(2);
   }
   float reading = (float)total / samples;
 
@@ -78,9 +85,14 @@ void goToSleep() {
 }
 
 void setup() {
+  // --- Power savings: disable unused radios and lower CPU ---
+  setCpuFrequencyMhz(CPU_MHZ);
+  WiFi.mode(WIFI_OFF);
+  esp_bt_controller_disable();
+
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
-  
+
   // Standard analog read setup
   analogReadResolution(12);
   analogSetPinAttenuation(BAT_PIN, ADC_11db);
@@ -88,11 +100,16 @@ void setup() {
   bootCount++;
   Serial.println("\n\n--- Boot #" + String(bootCount) + " ---");
 
-  display.init();
-  display.flipScreenVertically();
-  display.setFont(ArialMT_Plain_10);
-  display.drawString(0, 0, "Reading Sensor...");
-  display.display();
+  // Only power up the OLED on every Nth boot, first boot, or errors (checked later)
+  bool showDisplay = (bootCount == 1) || (bootCount % DISPLAY_EVERY_N == 0);
+
+  if (showDisplay) {
+    display.init();
+    display.flipScreenVertically();
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(0, 0, "Reading Sensor...");
+    display.display();
+  }
 
   // Init DHT
   dht.begin();
@@ -126,6 +143,7 @@ void setup() {
     goToSleep();
   }
   LoRa.setSpreadingFactor(LORA_SF);
+  LoRa.setTxPower(LORA_TX_POWER);
   LoRa.enableCrc();
 
   // Build JSON payload using snprintf to avoid String heap fragmentation
@@ -158,20 +176,31 @@ void setup() {
       Serial.println("LoRa TX retry also failed!");
     }
   }
+  digitalWrite(LED_PIN, LOW); // LED off immediately after TX
 
-  // Visual Feedback
-  display.clear();
-  display.drawString(0, 0, loraResult ? "Sent OK:" : "TX FAILED:");
-  if (dhtOk) {
-    display.drawString(0, 15, "T: " + String(t, 1) + " \xb0" + "C");
-    display.drawString(0, 30, "H: " + String(h, 1) + " %");
-  } else {
-    display.drawString(0, 15, "DHT: FAILED");
+  // Show display on scheduled boots, or force it on for any error condition
+  bool hasError = !dhtOk || !loraResult || lowBat;
+  if (!showDisplay && hasError) {
+    showDisplay = true;
+    display.init();
+    display.flipScreenVertically();
+    display.setFont(ArialMT_Plain_10);
   }
-  display.drawString(0, 45, "Bat: " + String(v, 2) + "V" + (lowBat ? " LOW!" : ""));
-  display.display();
 
-  delay(DISPLAY_SECONDS * 1000);
+  if (showDisplay) {
+    display.clear();
+    display.drawString(0, 0, loraResult ? "Sent OK:" : "TX FAILED:");
+    if (dhtOk) {
+      display.drawString(0, 15, "T: " + String(t, 1) + " \xb0" + "C");
+      display.drawString(0, 30, "H: " + String(h, 1) + " %");
+    } else {
+      display.drawString(0, 15, "DHT: FAILED");
+    }
+    display.drawString(0, 45, "Bat: " + String(v, 2) + "V" + (lowBat ? " LOW!" : ""));
+    display.display();
+    delay(DISPLAY_SECONDS * 1000);
+  }
+
   goToSleep();
 }
 
