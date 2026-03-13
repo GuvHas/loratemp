@@ -9,3 +9,5 @@ DHT connected to GPIO 13
 SSD1306 using 21, 22
 
 Green LED on the board, using GPIO25, used to signal when transmitting packet
+
+Gateway repo: https://github.com/GuvHas/loragateway
