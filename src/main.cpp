@@ -49,8 +49,9 @@ const int CPU_MHZ = 80;              // CPU frequency (80 is plenty for sensor w
 SSD1306 display(0x3C, SDA_PIN, SCL_PIN);
 DHT dht(DHTPIN, DHTTYPE);
 
-// Store boot count in RTC memory
-RTC_DATA_ATTR int bootCount = 0;
+// Store counters in RTC memory for backend gap detection across deep sleep cycles
+RTC_DATA_ATTR uint32_t bootCount = 0;
+RTC_DATA_ATTR uint32_t txCount = 0;
 
 // ==========================================
 //           HELPER FUNCTIONS
@@ -148,15 +149,38 @@ void setup() {
 
   // Build JSON payload using snprintf to avoid String heap fragmentation
   bool lowBat = v < LOW_BAT_VOLTAGE;
-  char msg[160];
+  txCount++;
+  char msg[192];
+  int msgLen = -1;
   if (dhtOk) {
-    snprintf(msg, sizeof(msg),
-             "{\"id\":\"%s\",\"t\":%.1f,\"h\":%.1f,\"v\":%.2f,\"boot\":%d%s}",
-             NodeId, t, h, v, bootCount, lowBat ? ",\"lb\":1" : "");
+    msgLen = snprintf(msg, sizeof(msg),
+                      "{\"id\":\"%s\",\"t\":%.1f,\"h\":%.1f,\"v\":%.2f,\"boot\":%lu,\"seq\":%lu%s}",
+                      NodeId, t, h, v,
+                      static_cast<unsigned long>(bootCount),
+                      static_cast<unsigned long>(txCount),
+                      lowBat ? ",\"lb\":1" : "");
   } else {
-    snprintf(msg, sizeof(msg),
-             "{\"id\":\"%s\",\"v\":%.2f,\"boot\":%d,\"err\":\"dht\"%s}",
-             NodeId, v, bootCount, lowBat ? ",\"lb\":1" : "");
+    msgLen = snprintf(msg, sizeof(msg),
+                      "{\"id\":\"%s\",\"v\":%.2f,\"boot\":%lu,\"seq\":%lu,\"err\":\"dht\"%s}",
+                      NodeId, v,
+                      static_cast<unsigned long>(bootCount),
+                      static_cast<unsigned long>(txCount),
+                      lowBat ? ",\"lb\":1" : "");
+  }
+
+  bool payloadOk = msgLen > 0 && msgLen < static_cast<int>(sizeof(msg));
+  if (!payloadOk) {
+    Serial.println("Payload build failed/truncated; using fallback message");
+    msgLen = snprintf(msg, sizeof(msg),
+                      "{\"id\":\"%s\",\"boot\":%lu,\"seq\":%lu,\"err\":\"fmt\"}",
+                      NodeId,
+                      static_cast<unsigned long>(bootCount),
+                      static_cast<unsigned long>(txCount));
+    payloadOk = msgLen > 0 && msgLen < static_cast<int>(sizeof(msg));
+    if (!payloadOk) {
+      strncpy(msg, "{\"id\":\"unknown\",\"err\":\"fmt\"}", sizeof(msg));
+      msg[sizeof(msg) - 1] = '\0';
+    }
   }
 
   Serial.print("Sending: ");
