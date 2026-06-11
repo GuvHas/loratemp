@@ -147,26 +147,31 @@ void setup() {
   LoRa.setTxPower(LORA_TX_POWER);
   LoRa.enableCrc();
 
-  // Build JSON payload using snprintf to avoid String heap fragmentation
+  // Build JSON payload using snprintf to avoid String heap fragmentation.
+  // Always emit every field so MQTT subscribers always receive a complete
+  // state object — absent keys break HA templates on the receiving end.
   bool lowBat = v < LOW_BAT_VOLTAGE;
   txCount++;
-  char msg[192];
-  int msgLen = -1;
+
+  // Format t and h as numeric values or the JSON literal null when unavailable.
+  char t_str[8], h_str[8];
   if (dhtOk) {
-    msgLen = snprintf(msg, sizeof(msg),
-                      "{\"id\":\"%s\",\"t\":%.1f,\"h\":%.1f,\"v\":%.2f,\"boot\":%lu,\"seq\":%lu%s}",
-                      NodeId, t, h, v,
-                      static_cast<unsigned long>(bootCount),
-                      static_cast<unsigned long>(txCount),
-                      lowBat ? ",\"lb\":1" : "");
+    snprintf(t_str, sizeof(t_str), "%.1f", t);
+    snprintf(h_str, sizeof(h_str), "%.1f", h);
   } else {
-    msgLen = snprintf(msg, sizeof(msg),
-                      "{\"id\":\"%s\",\"v\":%.2f,\"boot\":%lu,\"seq\":%lu,\"err\":\"dht\"%s}",
-                      NodeId, v,
-                      static_cast<unsigned long>(bootCount),
-                      static_cast<unsigned long>(txCount),
-                      lowBat ? ",\"lb\":1" : "");
+    strcpy(t_str, "null");
+    strcpy(h_str, "null");
   }
+
+  char msg[192];
+  int msgLen = snprintf(msg, sizeof(msg),
+                        "{\"id\":\"%s\",\"t\":%s,\"h\":%s,\"v\":%.2f"
+                        ",\"boot\":%lu,\"seq\":%lu,\"lb\":%d,\"err\":\"%s\"}",
+                        NodeId, t_str, h_str, v,
+                        static_cast<unsigned long>(bootCount),
+                        static_cast<unsigned long>(txCount),
+                        lowBat ? 1 : 0,
+                        dhtOk ? "none" : "dht");
 
   bool payloadOk = msgLen > 0 && msgLen < static_cast<int>(sizeof(msg));
   if (!payloadOk) {
