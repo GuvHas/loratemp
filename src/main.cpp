@@ -53,6 +53,10 @@ DHT dht(DHTPIN, DHTTYPE);
 RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR uint32_t txCount = 0;
 
+// Tracks whether display.init() ran this boot, so goToSleep() doesn't
+// touch the I2C bus when it was never started
+bool displayActive = false;
+
 // ==========================================
 //           HELPER FUNCTIONS
 // ==========================================
@@ -77,7 +81,9 @@ void goToSleep() {
   Serial.println("Going to sleep...");
   Serial.flush(); // Ensure serial output completes before sleep
   LoRa.end();
-  display.displayOff();
+  if (displayActive) {
+    display.displayOff();
+  }
   digitalWrite(LED_PIN, LOW);
   
   uint64_t sleepTime = (uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL;
@@ -106,6 +112,7 @@ void setup() {
 
   if (showDisplay) {
     display.init();
+    displayActive = true;
     display.flipScreenVertically();
     display.setFont(ArialMT_Plain_10);
     display.drawString(0, 0, "Reading Sensor...");
@@ -212,6 +219,7 @@ void setup() {
   if (!showDisplay && hasError) {
     showDisplay = true;
     display.init();
+    displayActive = true;
     display.flipScreenVertically();
     display.setFont(ArialMT_Plain_10);
   }
