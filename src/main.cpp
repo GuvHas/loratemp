@@ -6,6 +6,7 @@
 #include <DHT.h>
 #include <WiFi.h>
 #include <esp_bt.h>
+#include "payload.h"
 
 // ==========================================
 //              USER CONFIGURATION
@@ -85,9 +86,8 @@ void goToSleep() {
     display.displayOff();
   }
   digitalWrite(LED_PIN, LOW);
-  
-  uint64_t sleepTime = (uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL;
-  esp_sleep_enable_timer_wakeup(sleepTime);
+
+  esp_sleep_enable_timer_wakeup(sleepMicros(SLEEP_MINUTES));
   esp_deep_sleep_start();
 }
 
@@ -108,7 +108,7 @@ void setup() {
   Serial.println("\n\n--- Boot #" + String(bootCount) + " ---");
 
   // Only power up the OLED on every Nth boot, first boot, or errors (checked later)
-  bool showDisplay = (bootCount == 1) || (bootCount % DISPLAY_EVERY_N == 0);
+  bool showDisplay = isScheduledDisplayBoot(bootCount, DISPLAY_EVERY_N);
 
   if (showDisplay) {
     display.init();
@@ -154,46 +154,15 @@ void setup() {
   LoRa.setTxPower(LORA_TX_POWER);
   LoRa.enableCrc();
 
-  // Build JSON payload using snprintf to avoid String heap fragmentation.
+  // Build JSON payload via the pure, natively-tested formatPayload().
   // Always emit every field so MQTT subscribers always receive a complete
   // state object — absent keys break HA templates on the receiving end.
   bool lowBat = v < LOW_BAT_VOLTAGE;
   txCount++;
 
-  // Format t and h as numeric values or the JSON literal null when unavailable.
-  char t_str[8], h_str[8];
-  if (dhtOk) {
-    snprintf(t_str, sizeof(t_str), "%.1f", t);
-    snprintf(h_str, sizeof(h_str), "%.1f", h);
-  } else {
-    strcpy(t_str, "null");
-    strcpy(h_str, "null");
-  }
-
+  SensorReading reading{t, h, dhtOk};
   char msg[192];
-  int msgLen = snprintf(msg, sizeof(msg),
-                        "{\"id\":\"%s\",\"t\":%s,\"h\":%s,\"v\":%.2f"
-                        ",\"boot\":%lu,\"seq\":%lu,\"lb\":%d,\"err\":\"%s\"}",
-                        NodeId, t_str, h_str, v,
-                        static_cast<unsigned long>(bootCount),
-                        static_cast<unsigned long>(txCount),
-                        lowBat ? 1 : 0,
-                        dhtOk ? "none" : "dht");
-
-  bool payloadOk = msgLen > 0 && msgLen < static_cast<int>(sizeof(msg));
-  if (!payloadOk) {
-    Serial.println("Payload build failed/truncated; using fallback message");
-    msgLen = snprintf(msg, sizeof(msg),
-                      "{\"id\":\"%s\",\"boot\":%lu,\"seq\":%lu,\"err\":\"fmt\"}",
-                      NodeId,
-                      static_cast<unsigned long>(bootCount),
-                      static_cast<unsigned long>(txCount));
-    payloadOk = msgLen > 0 && msgLen < static_cast<int>(sizeof(msg));
-    if (!payloadOk) {
-      strncpy(msg, "{\"id\":\"unknown\",\"err\":\"fmt\"}", sizeof(msg));
-      msg[sizeof(msg) - 1] = '\0';
-    }
-  }
+  formatPayload(msg, sizeof(msg), NodeId, reading, v, LOW_BAT_VOLTAGE, bootCount, txCount);
 
   Serial.print("Sending: ");
   Serial.println(msg);
@@ -215,8 +184,7 @@ void setup() {
   digitalWrite(LED_PIN, LOW); // LED off immediately after TX
 
   // Show display on scheduled boots, or force it on for any error condition
-  bool hasError = !dhtOk || !loraResult || lowBat;
-  if (!showDisplay && hasError) {
+  if (!showDisplay && shouldForceDisplay(dhtOk, loraResult != 0, lowBat)) {
     showDisplay = true;
     display.init();
     displayActive = true;
