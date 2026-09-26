@@ -1,12 +1,9 @@
 #include <Arduino.h>
-#include <SPI.h>
-#include <LoRa.h>
-#include <Wire.h>
-#include "SSD1306.h"
-#include <DHT.h>
 #include <WiFi.h>
 #include <esp_bt.h>
-#include "payload.h"
+
+#include "hal_esp32.h"
+#include "orchestrator.h"
 
 // ==========================================
 //              USER CONFIGURATION
@@ -29,9 +26,9 @@ const int CPU_MHZ = 80;              // CPU frequency (80 is plenty for sensor w
 #define MISO_PIN 19
 #define MOSI_PIN 27
 #define SS_PIN   18
-#define RST_PIN  23 
+#define RST_PIN  23
 #define DI0_PIN  26
-#define BAND     868E6 
+#define BAND     868E6
 #define LED_PIN  25
 #define BAT_PIN  35  // GPIO35 is usually connected to the battery divider
 
@@ -44,52 +41,9 @@ const int CPU_MHZ = 80;              // CPU frequency (80 is plenty for sensor w
 #define DHTTYPE  DHT22
 #define DHT_MAX_RETRIES 3
 
-// ==========================================
-//             GLOBAL OBJECTS
-// ==========================================
-SSD1306 display(0x3C, SDA_PIN, SCL_PIN);
-DHT dht(DHTPIN, DHTTYPE);
-
 // Store counters in RTC memory for backend gap detection across deep sleep cycles
 RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR uint32_t txCount = 0;
-
-// Tracks whether display.init() ran this boot, so goToSleep() doesn't
-// touch the I2C bus when it was never started
-bool displayActive = false;
-
-// ==========================================
-//           HELPER FUNCTIONS
-// ==========================================
-
-float getBatteryVoltage() {
-  // Average multiple ADC samples to reduce noise
-  const int samples = 10;
-  long total = 0;
-  for (int i = 0; i < samples; i++) {
-    total += analogRead(BAT_PIN);
-    delay(2);
-  }
-  float reading = (float)total / samples;
-
-  // 3.3V reference / 4095 steps * 2 (voltage divider ratio)
-  float voltage = (reading / 4095.0f) * 3.3f * 2.0f;
-
-  return voltage;
-}
-
-void goToSleep() {
-  Serial.println("Going to sleep...");
-  Serial.flush(); // Ensure serial output completes before sleep
-  LoRa.end();
-  if (displayActive) {
-    display.displayOff();
-  }
-  digitalWrite(LED_PIN, LOW);
-
-  esp_sleep_enable_timer_wakeup(sleepMicros(SLEEP_MINUTES));
-  esp_deep_sleep_start();
-}
 
 void setup() {
   // --- Power savings: disable unused radios and lower CPU ---
@@ -107,106 +61,39 @@ void setup() {
   bootCount++;
   Serial.println("\n\n--- Boot #" + String(bootCount) + " ---");
 
-  // Only power up the OLED on every Nth boot, first boot, or errors (checked later)
-  bool showDisplay = isScheduledDisplayBoot(bootCount, DISPLAY_EVERY_N);
+  DhtSensor sensor(DHTPIN, DHTTYPE);
+  LoRaRadioAdapter radio(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN, RST_PIN, DI0_PIN, BAND, LORA_SF,
+                          LORA_TX_POWER, LED_PIN);
+  Ssd1306Display display(0x3C, SDA_PIN, SCL_PIN);
+  AdcPower power(BAT_PIN);
+  Esp32Clock clock;
 
-  if (showDisplay) {
-    display.init();
-    displayActive = true;
-    display.flipScreenVertically();
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 0, "Reading Sensor...");
-    display.display();
+  NodeConfig cfg{
+      NodeId,             // nodeId
+      DHT_MAX_RETRIES,    // dhtMaxRetries
+      2000,               // dhtRetryDelayMs
+      2000,               // dhtSettleDelayMs
+      2,                  // loraMaxRetries (1 initial attempt + 1 retry, matching original)
+      100,                // loraRetryDelayMs
+      LOW_BAT_VOLTAGE,    // lowBatVoltage
+      SLEEP_MINUTES,      // sleepMinutes
+      DISPLAY_EVERY_N,    // displayEveryN
+      DISPLAY_SECONDS,    // displaySeconds
+  };
+
+  NodeOutcome outcome = runNode(cfg, bootCount, txCount, sensor, radio, display, power, clock);
+
+  if (!outcome.loraOk) {
+    Serial.println(outcome.payload[0] == '\0' ? "LoRa Init Failed!" : "LoRa TX failed after retries!");
   }
-
-  // Init DHT
-  dht.begin();
-  delay(2000); // Allow sensor and voltage to stabilize
-
-  // Retry DHT reads — the sensor often fails on the first attempt after deep sleep
-  float t = NAN;
-  float h = NAN;
-  for (int attempt = 0; attempt < DHT_MAX_RETRIES; attempt++) {
-    t = dht.readTemperature();
-    h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) break;
-    Serial.println("DHT read attempt " + String(attempt + 1) + " failed, retrying...");
-    delay(2000);
+  if (!outcome.dhtOk) {
+    Serial.println("DHT Read Failed after retries!");
   }
-
-  bool dhtOk = !isnan(t) && !isnan(h);
-  if (!dhtOk) {
-    Serial.println("DHT Read Failed after " + String(DHT_MAX_RETRIES) + " attempts!");
+  if (outcome.payload[0] != '\0') {
+    Serial.print("Sending: ");
+    Serial.println(outcome.payload);
   }
-
-  float v = getBatteryVoltage();
-
-  // Init LoRa
-  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
-  LoRa.setPins(SS_PIN, RST_PIN, DI0_PIN);
-  
-  if (!LoRa.begin(BAND)) {
-    Serial.println("LoRa Init Failed!");
-    delay(1000);
-    goToSleep();
-  }
-  LoRa.setSpreadingFactor(LORA_SF);
-  LoRa.setTxPower(LORA_TX_POWER);
-  LoRa.enableCrc();
-
-  // Build JSON payload via the pure, natively-tested formatPayload().
-  // Always emit every field so MQTT subscribers always receive a complete
-  // state object — absent keys break HA templates on the receiving end.
-  bool lowBat = v < LOW_BAT_VOLTAGE;
-  txCount++;
-
-  SensorReading reading{t, h, dhtOk};
-  char msg[192];
-  formatPayload(msg, sizeof(msg), NodeId, reading, v, LOW_BAT_VOLTAGE, bootCount, txCount);
-
-  Serial.print("Sending: ");
-  Serial.println(msg);
-
-  digitalWrite(LED_PIN, HIGH);
-  LoRa.beginPacket();
-  LoRa.print(msg);
-  int loraResult = LoRa.endPacket();
-  if (loraResult == 0) {
-    Serial.println("LoRa TX failed, retrying...");
-    delay(100);
-    LoRa.beginPacket();
-    LoRa.print(msg);
-    loraResult = LoRa.endPacket();
-    if (loraResult == 0) {
-      Serial.println("LoRa TX retry also failed!");
-    }
-  }
-  digitalWrite(LED_PIN, LOW); // LED off immediately after TX
-
-  // Show display on scheduled boots, or force it on for any error condition
-  if (!showDisplay && shouldForceDisplay(dhtOk, loraResult != 0, lowBat)) {
-    showDisplay = true;
-    display.init();
-    displayActive = true;
-    display.flipScreenVertically();
-    display.setFont(ArialMT_Plain_10);
-  }
-
-  if (showDisplay) {
-    display.clear();
-    display.drawString(0, 0, loraResult ? "Sent OK:" : "TX FAILED:");
-    if (dhtOk) {
-      display.drawString(0, 15, "T: " + String(t, 1) + " \xb0" + "C");
-      display.drawString(0, 30, "H: " + String(h, 1) + " %");
-    } else {
-      display.drawString(0, 15, "DHT: FAILED");
-    }
-    display.drawString(0, 45, "Bat: " + String(v, 2) + "V" + (lowBat ? " LOW!" : ""));
-    display.display();
-    delay(DISPLAY_SECONDS * 1000);
-  }
-
-  goToSleep();
+  // runNode() always ends in clock.deepSleep(), which never returns on real hardware.
 }
 
 void loop() {
