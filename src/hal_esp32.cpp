@@ -114,3 +114,7 @@ void Esp32Clock::deepSleep(uint64_t micros) {
   esp_sleep_enable_timer_wakeup(micros);
   esp_deep_sleep_start();
 }
+
+// ---------- SerialLogger ----------
+
+void SerialLogger::log(const char* msg) { Serial.println(msg); }

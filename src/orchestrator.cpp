@@ -1,5 +1,7 @@
 #include "orchestrator.h"
 
+#include <cstdio>
+
 namespace {
 
 void goToSleep(IClock& clock, ILoRaRadio& radio, IDisplay& display, bool displayed,
@@ -15,7 +17,7 @@ void goToSleep(IClock& clock, ILoRaRadio& radio, IDisplay& display, bool display
 
 NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount,
                      ISensor& sensor, ILoRaRadio& radio, IDisplay& display,
-                     IPower& power, IClock& clock) {
+                     IPower& power, IClock& clock, ILogger& logger) {
   NodeOutcome outcome{};
   outcome.payload[0] = '\0';
 
@@ -38,11 +40,16 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
     }
   }
   outcome.dhtOk = reading.valid;
+  if (!outcome.dhtOk) {
+    logger.log("DHT Read Failed after retries!");
+  }
 
   float voltage = power.readBatteryVoltage();
   bool lowBat = voltage < cfg.lowBatVoltage;
 
   if (!radio.begin()) {
+    logger.log("LoRa Init Failed!");
+    outcome.displayed = showDisplay;
     goToSleep(clock, radio, display, showDisplay, cfg.sleepMinutes);
     return outcome;
   }
@@ -50,6 +57,10 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
   txCount++;
   formatPayload(outcome.payload, sizeof(outcome.payload), cfg.nodeId, reading, voltage,
                 cfg.lowBatVoltage, bootCount, txCount);
+
+  char sendMsg[sizeof(outcome.payload) + 16];
+  snprintf(sendMsg, sizeof(sendMsg), "Sending: %s", outcome.payload);
+  logger.log(sendMsg);
 
   bool sent = false;
   for (int attempt = 0; attempt < cfg.loraMaxRetries; attempt++) {
@@ -62,6 +73,9 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
     }
   }
   outcome.loraOk = sent;
+  if (!outcome.loraOk) {
+    logger.log("LoRa TX failed after retries!");
+  }
 
   if (!showDisplay && shouldForceDisplay(outcome.dhtOk, outcome.loraOk, lowBat)) {
     showDisplay = true;

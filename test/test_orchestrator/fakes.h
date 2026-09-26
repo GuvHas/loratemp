@@ -95,6 +95,13 @@ class FakeClock : public IClock {
   }
 };
 
+class FakeLogger : public ILogger {
+ public:
+  std::vector<std::string> messages;
+
+  void log(const char* msg) override { messages.push_back(msg); }
+};
+
 inline NodeConfig defaultTestConfig() {
   return NodeConfig{
       "TestNode",  // nodeId

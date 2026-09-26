@@ -67,6 +67,7 @@ void setup() {
   Ssd1306Display display(0x3C, SDA_PIN, SCL_PIN);
   AdcPower power(BAT_PIN);
   Esp32Clock clock;
+  SerialLogger logger;
 
   NodeConfig cfg{
       NodeId,             // nodeId
@@ -81,19 +82,10 @@ void setup() {
       DISPLAY_SECONDS,    // displaySeconds
   };
 
-  NodeOutcome outcome = runNode(cfg, bootCount, txCount, sensor, radio, display, power, clock);
-
-  if (!outcome.loraOk) {
-    Serial.println(outcome.payload[0] == '\0' ? "LoRa Init Failed!" : "LoRa TX failed after retries!");
-  }
-  if (!outcome.dhtOk) {
-    Serial.println("DHT Read Failed after retries!");
-  }
-  if (outcome.payload[0] != '\0') {
-    Serial.print("Sending: ");
-    Serial.println(outcome.payload);
-  }
-  // runNode() always ends in clock.deepSleep(), which never returns on real hardware.
+  // runNode() emits its own diagnostics (via logger) before it sleeps, since
+  // clock.deepSleep() never returns on real hardware — anything logged here
+  // after the call would never actually run.
+  runNode(cfg, bootCount, txCount, sensor, radio, display, power, clock, logger);
 }
 
 void loop() {

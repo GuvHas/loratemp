@@ -19,15 +19,18 @@ void test_dht_succeeds_on_first_attempt() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, /*bootCount=*/2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, /*bootCount=*/2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_TRUE(outcome.dhtOk);
   TEST_ASSERT_EQUAL(1, sensor.readCalls);
   // Only the initial settle delay — no DHT retry delay, no LoRa retry delay.
   TEST_ASSERT_EQUAL(1, (int)clock.delaysMs.size());
   TEST_ASSERT_EQUAL_UINT32(2000, clock.delaysMs[0]);
+  TEST_ASSERT_EQUAL(1, (int)logger.messages.size());
+  TEST_ASSERT_TRUE(logger.messages[0].rfind("Sending: {", 0) == 0);
 }
 
 void test_dht_retries_then_succeeds() {
@@ -39,9 +42,10 @@ void test_dht_retries_then_succeeds() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_TRUE(outcome.dhtOk);
   TEST_ASSERT_EQUAL(3, sensor.readCalls);
@@ -60,9 +64,10 @@ void test_dht_exhausts_all_retries() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_FALSE(outcome.dhtOk);
   TEST_ASSERT_EQUAL(cfg.dhtMaxRetries, sensor.readCalls);
@@ -72,6 +77,7 @@ void test_dht_exhausts_all_retries() {
   TEST_ASSERT_TRUE(outcome.displayed);
   TEST_ASSERT_EQUAL(1, display.initCalls);
   TEST_ASSERT_EQUAL(1, display.showReadingCalls);
+  TEST_ASSERT_EQUAL_STRING("DHT Read Failed after retries!", logger.messages.front().c_str());
 }
 
 // ---------- LoRa TX failures ----------
@@ -85,9 +91,10 @@ void test_lora_begin_failure_aborts_before_building_or_sending_payload() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_FALSE(outcome.loraOk);
   TEST_ASSERT_EQUAL(0, radio.sendCalls);
@@ -98,6 +105,28 @@ void test_lora_begin_failure_aborts_before_building_or_sending_payload() {
   // Sleep fallback still runs even though init failed.
   TEST_ASSERT_EQUAL(1, clock.sleepCalls);
   TEST_ASSERT_EQUAL(1, radio.endCalls);
+  TEST_ASSERT_EQUAL_STRING("LoRa Init Failed!", logger.messages.back().c_str());
+}
+
+void test_lora_begin_failure_on_scheduled_boot_reports_display_was_on() {
+  NodeConfig cfg = defaultTestConfig();
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.beginResult = false;
+  FakeDisplay display;
+  FakePower power;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+
+  // bootCount == displayEveryN -> display.init() already ran before the
+  // LoRa init check, so the outcome must reflect that it was shown.
+  NodeOutcome outcome = runNode(cfg, cfg.displayEveryN, txCount, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_EQUAL(1, display.initCalls);
+  TEST_ASSERT_TRUE(outcome.displayed);
+  TEST_ASSERT_EQUAL(1, display.offCalls);
 }
 
 void test_lora_send_retries_then_succeeds() {
@@ -109,9 +138,10 @@ void test_lora_send_retries_then_succeeds() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_TRUE(outcome.loraOk);
   TEST_ASSERT_EQUAL(2, radio.sendCalls);
@@ -130,15 +160,17 @@ void test_lora_send_fails_after_all_retries() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_FALSE(outcome.loraOk);
   TEST_ASSERT_EQUAL(cfg.loraMaxRetries, radio.sendCalls);
   // TX failure forces the display on even on a non-scheduled boot.
   TEST_ASSERT_TRUE(outcome.displayed);
   TEST_ASSERT_FALSE(display.lastSent);
+  TEST_ASSERT_EQUAL_STRING("LoRa TX failed after retries!", logger.messages.back().c_str());
 }
 
 // ---------- Display scheduling ----------
@@ -152,9 +184,10 @@ void test_display_stays_off_when_healthy_and_not_scheduled() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, /*bootCount=*/2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, /*bootCount=*/2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_FALSE(outcome.displayed);
   TEST_ASSERT_EQUAL(0, display.initCalls);
@@ -171,10 +204,11 @@ void test_display_shown_on_scheduled_boot_calls_init_once() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
   // bootCount == displayEveryN -> scheduled boot, everything healthy.
-  NodeOutcome outcome = runNode(cfg, cfg.displayEveryN, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, cfg.displayEveryN, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_TRUE(outcome.displayed);
   TEST_ASSERT_EQUAL(1, display.initCalls);  // not re-init'd by the force-display branch
@@ -194,9 +228,10 @@ void test_low_battery_forces_display_and_sets_flag() {
   FakePower power;
   power.voltage = 3.0f;  // below cfg.lowBatVoltage (3.3)
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  NodeOutcome outcome = runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_TRUE(outcome.displayed);
   TEST_ASSERT_TRUE(display.lastLowBat);
@@ -214,9 +249,10 @@ void test_sleep_called_exactly_once_on_success_path() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_EQUAL(1, clock.sleepCalls);
   TEST_ASSERT_EQUAL_UINT64(5ULL * 60ULL * 1000000ULL, clock.sleptMicros);
@@ -230,9 +266,10 @@ void test_sleep_called_exactly_once_when_dht_fails() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_EQUAL(1, clock.sleepCalls);
 }
@@ -246,9 +283,10 @@ void test_sleep_called_exactly_once_when_lora_send_fails() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_EQUAL(1, clock.sleepCalls);
 }
@@ -262,9 +300,10 @@ void test_sleep_called_exactly_once_when_lora_init_fails() {
   FakeDisplay display;
   FakePower power;
   FakeClock clock;
+  FakeLogger logger;
   uint32_t txCount = 0;
 
-  runNode(cfg, 2, txCount, sensor, radio, display, power, clock);
+  runNode(cfg, 2, txCount, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_EQUAL(1, clock.sleepCalls);
 }
@@ -277,6 +316,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_dht_exhausts_all_retries);
 
   RUN_TEST(test_lora_begin_failure_aborts_before_building_or_sending_payload);
+  RUN_TEST(test_lora_begin_failure_on_scheduled_boot_reports_display_was_on);
   RUN_TEST(test_lora_send_retries_then_succeeds);
   RUN_TEST(test_lora_send_fails_after_all_retries);
 

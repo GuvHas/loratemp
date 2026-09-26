@@ -60,3 +60,8 @@ class Esp32Clock : public IClock {
   void delayMs(uint32_t ms) override;
   void deepSleep(uint64_t micros) override;
 };
+
+class SerialLogger : public ILogger {
+ public:
+  void log(const char* msg) override;
+};

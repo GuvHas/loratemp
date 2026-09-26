@@ -43,3 +43,13 @@ class IClock {
   virtual void delayMs(uint32_t ms) = 0;
   virtual void deepSleep(uint64_t micros) = 0;  // never returns on real hardware
 };
+
+// Diagnostic logging. A separate interface (rather than folding into
+// IClock) because runNode() must emit each message at the moment it's
+// known — before the final deepSleep() call, which never returns on real
+// hardware, so any logging attempted after runNode() returns is dead code.
+class ILogger {
+ public:
+  virtual ~ILogger() = default;
+  virtual void log(const char* msg) = 0;
+};

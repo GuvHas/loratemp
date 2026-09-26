@@ -35,4 +35,4 @@ struct NodeOutcome {
 // LoRa init failure — is guaranteed to put the node back to sleep.
 NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount,
                      ISensor& sensor, ILoRaRadio& radio, IDisplay& display,
-                     IPower& power, IClock& clock);
+                     IPower& power, IClock& clock, ILogger& logger);
