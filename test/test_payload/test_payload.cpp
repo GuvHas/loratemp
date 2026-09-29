@@ -23,10 +23,14 @@ void test_formatPayload_valid_reading() {
 void test_formatPayload_dht_failure_emits_null_fields() {
   char buf[192];
   SensorReading reading{0.0f, 0.0f, false};
+  // bootCount 1 is this node's cold boot (see formatPayload()'s comment), so
+  // the payload now also carries "sw" -- the native build's NODE_FW_VERSION
+  // fallback, "dev", since inject_git_version.py doesn't run there.
   formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 1, 1);
 
   TEST_ASSERT_EQUAL_STRING(
-      "{\"id\":\"GarageTemp\",\"t\":null,\"h\":null,\"v\":3.90,\"boot\":1,\"seq\":1,\"lb\":0,\"err\":\"dht\"}",
+      "{\"id\":\"GarageTemp\",\"t\":null,\"h\":null,\"v\":3.90,\"boot\":1,\"seq\":1,\"lb\":0,\"err\":\"dht\""
+      ",\"sw\":\"dev\"}",
       buf);
 }
 
@@ -45,6 +49,31 @@ void test_formatPayload_low_battery_flag_clear_at_threshold() {
   formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.3f, 3.3f, 1, 1);
 
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"lb\":0"));
+}
+
+// ---------- cold-boot "sw" field ----------
+
+void test_formatPayload_cold_boot_includes_sw_field() {
+  char buf[192];
+  SensorReading reading{21.5f, 55.2f, true};
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, /*bootCount=*/1, 1);
+
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"id\":\"GarageTemp\",\"t\":21.5,\"h\":55.2,\"v\":3.90,\"boot\":1,\"seq\":1,\"lb\":0,\"err\":\"none\""
+      ",\"sw\":\"dev\"}",
+      buf);
+}
+
+void test_formatPayload_non_cold_boot_omits_sw_field() {
+  char buf[192];
+  SensorReading reading{21.5f, 55.2f, true};
+  // Every bootCount other than 1 is a wake from deep sleep, not a cold
+  // boot -- must not carry "sw" at all (not even null), to avoid spending
+  // airtime/battery on a value that can't have changed since the last
+  // transmission.
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, /*bootCount=*/2, 1);
+
+  TEST_ASSERT_NULL(strstr(buf, "\"sw\""));
 }
 
 void test_formatPayload_falls_back_when_full_message_does_not_fit() {
@@ -127,6 +156,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_formatPayload_dht_failure_emits_null_fields);
   RUN_TEST(test_formatPayload_low_battery_flag_set);
   RUN_TEST(test_formatPayload_low_battery_flag_clear_at_threshold);
+  RUN_TEST(test_formatPayload_cold_boot_includes_sw_field);
+  RUN_TEST(test_formatPayload_non_cold_boot_omits_sw_field);
   RUN_TEST(test_formatPayload_falls_back_when_full_message_does_not_fit);
   RUN_TEST(test_formatPayload_falls_back_to_fixed_literal_when_nothing_fits);
 

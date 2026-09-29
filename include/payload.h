@@ -18,6 +18,16 @@ struct SensorReading {
 // minimal error payload if the full message doesn't fit in buf, and to a
 // fixed literal if even that doesn't fit.
 //
+// Also appends "sw": NODE_FW_VERSION, but only when bootCount == 1 -- this
+// node's cold boot (RTC memory, and so bootCount, resets to 0 only on power
+// loss, i.e. a flash or battery swap; main.cpp increments it to 1 before
+// ever calling this, the same "very first boot" convention
+// isScheduledDisplayBoot() already uses). Every later transmission omits
+// it: the gateway remembers whatever version it was last told (see
+// loragateway's GatewayOrchestrator::swVersionByNode_), so repeating a
+// value that can't have changed since the last packet would waste airtime
+// and battery for nothing.
+//
 // Returns the number of bytes written (excluding the null terminator).
 int formatPayload(char* buf, size_t bufSize, const char* nodeId,
                    const SensorReading& reading, float batteryVoltage,
