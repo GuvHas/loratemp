@@ -44,6 +44,10 @@ const int CPU_MHZ = 80;              // CPU frequency (80 is plenty for sensor w
 // Store counters in RTC memory for backend gap detection across deep sleep cycles
 RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR uint32_t txCount = 0;
+// Resets to false only on a real power loss (flash/battery swap), same as
+// the counters above. Tracks whether the gateway has actually received this
+// node's firmware version yet -- see runNode()'s doc comment.
+RTC_DATA_ATTR bool versionReported = false;
 
 void setup() {
   // --- Power savings: disable unused radios and lower CPU ---
@@ -85,7 +89,7 @@ void setup() {
   // runNode() emits its own diagnostics (via logger) before it sleeps, since
   // clock.deepSleep() never returns on real hardware — anything logged here
   // after the call would never actually run.
-  runNode(cfg, bootCount, txCount, sensor, radio, display, power, clock, logger);
+  runNode(cfg, bootCount, txCount, versionReported, sensor, radio, display, power, clock, logger);
 }
 
 void loop() {

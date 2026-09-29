@@ -16,8 +16,8 @@ void goToSleep(IClock& clock, ILoRaRadio& radio, IDisplay& display, bool display
 }  // namespace
 
 NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount,
-                     ISensor& sensor, ILoRaRadio& radio, IDisplay& display,
-                     IPower& power, IClock& clock, ILogger& logger) {
+                     bool& versionReported, ISensor& sensor, ILoRaRadio& radio,
+                     IDisplay& display, IPower& power, IClock& clock, ILogger& logger) {
   NodeOutcome outcome{};
   outcome.payload[0] = '\0';
 
@@ -55,8 +55,13 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
   }
 
   txCount++;
+  // Only reported while the gateway hasn't actually confirmed receipt yet
+  // (see versionReported's doc comment on runNode()); decided once, before
+  // the send attempts below, so a mid-cycle flip doesn't change what this
+  // specific payload claims partway through its own retries.
+  bool reportVersion = !versionReported;
   formatPayload(outcome.payload, sizeof(outcome.payload), cfg.nodeId, reading, voltage,
-                cfg.lowBatVoltage, bootCount, txCount);
+                cfg.lowBatVoltage, bootCount, txCount, reportVersion);
 
   char sendMsg[sizeof(outcome.payload) + 16];
   snprintf(sendMsg, sizeof(sendMsg), "Sending: %s", outcome.payload);
@@ -75,6 +80,12 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
   outcome.loraOk = sent;
   if (!outcome.loraOk) {
     logger.log("LoRa TX failed after retries!");
+  } else if (reportVersion) {
+    // The payload that just went out over the air actually carried "sw";
+    // only now is it safe to stop repeating it. Left false on any failure
+    // above (or if radio.begin() failed before this point at all) so the
+    // next wake retries with "sw" included again.
+    versionReported = true;
   }
 
   if (!showDisplay && shouldForceDisplay(outcome.dhtOk, outcome.loraOk, lowBat)) {

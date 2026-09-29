@@ -15,7 +15,7 @@
 int formatPayload(char* buf, size_t bufSize, const char* nodeId,
                    const SensorReading& reading, float batteryVoltage,
                    float lowBatteryThreshold, uint32_t bootCount,
-                   uint32_t txCount) {
+                   uint32_t txCount, bool includeSwVersion) {
   bool lowBat = batteryVoltage < lowBatteryThreshold;
 
   char t_str[8];
@@ -28,9 +28,10 @@ int formatPayload(char* buf, size_t bufSize, const char* nodeId,
     strcpy(h_str, "null");
   }
 
-  // See payload.h's comment on why this is gated on bootCount == 1.
+  // See payload.h's comment on why this is gated on the caller's
+  // includeSwVersion decision, not directly on bootCount.
   int len;
-  if (bootCount == 1) {
+  if (includeSwVersion) {
     len = snprintf(buf, bufSize,
                     "{\"id\":\"%s\",\"t\":%s,\"h\":%s,\"v\":%.2f"
                     ",\"boot\":%lu,\"seq\":%lu,\"lb\":%d,\"err\":\"%s\""

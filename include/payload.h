@@ -18,12 +18,16 @@ struct SensorReading {
 // minimal error payload if the full message doesn't fit in buf, and to a
 // fixed literal if even that doesn't fit.
 //
-// Also appends "sw": NODE_FW_VERSION, but only when bootCount == 1 -- this
-// node's cold boot (RTC memory, and so bootCount, resets to 0 only on power
-// loss, i.e. a flash or battery swap; main.cpp increments it to 1 before
-// ever calling this, the same "very first boot" convention
-// isScheduledDisplayBoot() already uses). Every later transmission omits
-// it: the gateway remembers whatever version it was last told (see
+// Appends "sw": NODE_FW_VERSION when includeSwVersion is true, and omits it
+// entirely otherwise. The caller (runNode(), via its versionReported
+// parameter) decides this based on whether the gateway has actually
+// confirmed receipt of this node's version yet -- not simply "is this boot
+// number 1" -- so a cold boot whose LoRa radio fails to init, or whose send
+// never gets through after all retries, keeps trying on every subsequent
+// wake instead of permanently missing its one window to report (a node has
+// no OTA path, so losing that window meant not until the next physical
+// flash/battery-swap). Every packet after a *successful* report omits "sw"
+// entirely: the gateway remembers whatever version it was last told (see
 // loragateway's GatewayOrchestrator::swVersionByNode_), so repeating a
 // value that can't have changed since the last packet would waste airtime
 // and battery for nothing.
@@ -32,7 +36,7 @@ struct SensorReading {
 int formatPayload(char* buf, size_t bufSize, const char* nodeId,
                    const SensorReading& reading, float batteryVoltage,
                    float lowBatteryThreshold, uint32_t bootCount,
-                   uint32_t txCount);
+                   uint32_t txCount, bool includeSwVersion);
 
 // Deep-sleep duration in microseconds, for esp_sleep_enable_timer_wakeup.
 uint64_t sleepMicros(int sleepMinutes);
