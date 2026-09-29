@@ -12,7 +12,8 @@ void tearDown() {}
 void test_formatPayload_valid_reading() {
   char buf[192];
   SensorReading reading{21.5f, 55.2f, true};
-  int len = formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 7, 4);
+  int len = formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 7, 4,
+                           /*includeSwVersion=*/false);
 
   TEST_ASSERT_GREATER_THAN(0, len);
   TEST_ASSERT_EQUAL_STRING(
@@ -23,7 +24,7 @@ void test_formatPayload_valid_reading() {
 void test_formatPayload_dht_failure_emits_null_fields() {
   char buf[192];
   SensorReading reading{0.0f, 0.0f, false};
-  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 1, 1);
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 1, 1, /*includeSwVersion=*/false);
 
   TEST_ASSERT_EQUAL_STRING(
       "{\"id\":\"GarageTemp\",\"t\":null,\"h\":null,\"v\":3.90,\"boot\":1,\"seq\":1,\"lb\":0,\"err\":\"dht\"}",
@@ -33,7 +34,7 @@ void test_formatPayload_dht_failure_emits_null_fields() {
 void test_formatPayload_low_battery_flag_set() {
   char buf[192];
   SensorReading reading{20.0f, 50.0f, true};
-  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.1f, 3.3f, 1, 1);
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.1f, 3.3f, 1, 1, /*includeSwVersion=*/false);
 
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"lb\":1"));
 }
@@ -42,9 +43,36 @@ void test_formatPayload_low_battery_flag_clear_at_threshold() {
   char buf[192];
   SensorReading reading{20.0f, 50.0f, true};
   // Voltage exactly at threshold is not "low" (strict less-than).
-  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.3f, 3.3f, 1, 1);
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.3f, 3.3f, 1, 1, /*includeSwVersion=*/false);
 
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"lb\":0"));
+}
+
+// ---------- "sw" field ----------
+// Whether "sw" is included is entirely the caller's decision (see
+// runNode()'s versionReported tracking in orchestrator.cpp) -- formatPayload
+// itself has no opinion on bootCount for this.
+
+void test_formatPayload_includes_sw_field_when_requested() {
+  char buf[192];
+  SensorReading reading{21.5f, 55.2f, true};
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 1, 1, /*includeSwVersion=*/true);
+
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"id\":\"GarageTemp\",\"t\":21.5,\"h\":55.2,\"v\":3.90,\"boot\":1,\"seq\":1,\"lb\":0,\"err\":\"none\""
+      ",\"sw\":\"dev\"}",
+      buf);
+}
+
+void test_formatPayload_omits_sw_field_when_not_requested() {
+  char buf[192];
+  SensorReading reading{21.5f, 55.2f, true};
+  // Must not carry "sw" at all (not even null) when not requested, to avoid
+  // spending airtime/battery on a value that can't have changed since the
+  // last transmission the gateway actually received.
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 2, 1, /*includeSwVersion=*/false);
+
+  TEST_ASSERT_NULL(strstr(buf, "\"sw\""));
 }
 
 void test_formatPayload_falls_back_when_full_message_does_not_fit() {
@@ -52,7 +80,8 @@ void test_formatPayload_falls_back_when_full_message_does_not_fit() {
   // fits the fallback but not the full message.
   char buf[60];
   SensorReading reading{21.5f, 55.2f, true};
-  int len = formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 7, 4);
+  int len = formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 7, 4,
+                           /*includeSwVersion=*/false);
 
   TEST_ASSERT_EQUAL_STRING("{\"id\":\"GarageTemp\",\"boot\":7,\"seq\":4,\"err\":\"fmt\"}", buf);
   TEST_ASSERT_EQUAL(static_cast<int>(strlen(buf)), len);
@@ -61,7 +90,7 @@ void test_formatPayload_falls_back_when_full_message_does_not_fit() {
 void test_formatPayload_falls_back_to_fixed_literal_when_nothing_fits() {
   char buf[8];  // too small even for the "fmt" fallback message (needs 49)
   SensorReading reading{21.5f, 55.2f, true};
-  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 7, 4);
+  formatPayload(buf, sizeof(buf), "GarageTemp", reading, 3.9f, 3.3f, 7, 4, /*includeSwVersion=*/false);
 
   // Truncated literal, always null-terminated within bufSize.
   TEST_ASSERT_EQUAL_STRING("{\"id\":\"", buf);
@@ -127,6 +156,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_formatPayload_dht_failure_emits_null_fields);
   RUN_TEST(test_formatPayload_low_battery_flag_set);
   RUN_TEST(test_formatPayload_low_battery_flag_clear_at_threshold);
+  RUN_TEST(test_formatPayload_includes_sw_field_when_requested);
+  RUN_TEST(test_formatPayload_omits_sw_field_when_not_requested);
   RUN_TEST(test_formatPayload_falls_back_when_full_message_does_not_fit);
   RUN_TEST(test_formatPayload_falls_back_to_fixed_literal_when_nothing_fits);
 

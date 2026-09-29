@@ -3,10 +3,19 @@
 #include <cstdio>
 #include <cstring>
 
+// Injected at build time by scripts/inject_git_version.py (see
+// platformio.ini) -- the current git short hash, mirroring loragateway's own
+// GATEWAY_FW_VERSION. Falls back to "dev" only if that script somehow didn't
+// run (e.g. building outside PlatformIO, or the native test env, which
+// deliberately skips it).
+#ifndef NODE_FW_VERSION
+#define NODE_FW_VERSION "dev"
+#endif
+
 int formatPayload(char* buf, size_t bufSize, const char* nodeId,
                    const SensorReading& reading, float batteryVoltage,
                    float lowBatteryThreshold, uint32_t bootCount,
-                   uint32_t txCount) {
+                   uint32_t txCount, bool includeSwVersion) {
   bool lowBat = batteryVoltage < lowBatteryThreshold;
 
   char t_str[8];
@@ -19,13 +28,27 @@ int formatPayload(char* buf, size_t bufSize, const char* nodeId,
     strcpy(h_str, "null");
   }
 
-  int len = snprintf(buf, bufSize,
-                      "{\"id\":\"%s\",\"t\":%s,\"h\":%s,\"v\":%.2f"
-                      ",\"boot\":%lu,\"seq\":%lu,\"lb\":%d,\"err\":\"%s\"}",
-                      nodeId, t_str, h_str, batteryVoltage,
-                      static_cast<unsigned long>(bootCount),
-                      static_cast<unsigned long>(txCount), lowBat ? 1 : 0,
-                      reading.valid ? "none" : "dht");
+  // See payload.h's comment on why this is gated on the caller's
+  // includeSwVersion decision, not directly on bootCount.
+  int len;
+  if (includeSwVersion) {
+    len = snprintf(buf, bufSize,
+                    "{\"id\":\"%s\",\"t\":%s,\"h\":%s,\"v\":%.2f"
+                    ",\"boot\":%lu,\"seq\":%lu,\"lb\":%d,\"err\":\"%s\""
+                    ",\"sw\":\"%s\"}",
+                    nodeId, t_str, h_str, batteryVoltage,
+                    static_cast<unsigned long>(bootCount),
+                    static_cast<unsigned long>(txCount), lowBat ? 1 : 0,
+                    reading.valid ? "none" : "dht", NODE_FW_VERSION);
+  } else {
+    len = snprintf(buf, bufSize,
+                    "{\"id\":\"%s\",\"t\":%s,\"h\":%s,\"v\":%.2f"
+                    ",\"boot\":%lu,\"seq\":%lu,\"lb\":%d,\"err\":\"%s\"}",
+                    nodeId, t_str, h_str, batteryVoltage,
+                    static_cast<unsigned long>(bootCount),
+                    static_cast<unsigned long>(txCount), lowBat ? 1 : 0,
+                    reading.valid ? "none" : "dht");
+  }
 
   bool ok = len > 0 && static_cast<size_t>(len) < bufSize;
   if (!ok) {
