@@ -40,8 +40,8 @@ class FakeRadio : public ILoRaRadio {
     return beginResult;
   }
 
-  bool send(const char* msg) override {
-    sentPayloads.push_back(msg);
+  bool send(const uint8_t* data, size_t len) override {
+    sentPayloads.push_back(std::string(reinterpret_cast<const char*>(data), len));
     bool result = sendCalls < static_cast<int>(queuedSendResults.size())
                       ? queuedSendResults[sendCalls]
                       : false;
@@ -120,5 +120,6 @@ inline NodeConfig defaultTestConfig() {
       60,          // criticalSleepMinutes
       0,           // sleepJitterMs (0 keeps sleep durations exact in tests)
       0,           // randomValue
+      false,       // binaryPayload (JSON unless a test opts in)
   };
 }

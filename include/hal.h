@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "payload.h"
@@ -19,7 +20,9 @@ class ILoRaRadio {
  public:
   virtual ~ILoRaRadio() = default;
   virtual bool begin() = 0;
-  virtual bool send(const char* msg) = 0;  // one attempt; caller handles retries
+  // One attempt; caller handles retries. Takes bytes and a length, since a
+  // binary frame contains NULs.
+  virtual bool send(const uint8_t* data, size_t len) = 0;
   virtual void end() = 0;
 };
 

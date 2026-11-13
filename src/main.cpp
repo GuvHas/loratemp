@@ -24,6 +24,10 @@ const int CRITICAL_SLEEP_MINUTES = 60;
 // Each sleep is offset by a random amount up to +/- this, so nodes powered
 // up together do not keep transmitting at the same moment.
 const int SLEEP_JITTER_MS = 5000;
+// Send the 24-byte binary frame instead of ~83 bytes of JSON: about 206 ms
+// on air at SF9 instead of 472 ms. Needs loragateway #29 or later on the
+// gateway; set false to go back to JSON.
+const bool BINARY_PAYLOAD = true;
 const int LORA_SF = 9;               // LoRa spreading factor (7-12, higher = more range)
 
 // Power saving options
@@ -144,6 +148,7 @@ void setup() {
       CRITICAL_SLEEP_MINUTES,  // criticalSleepMinutes
       SLEEP_JITTER_MS,         // sleepJitterMs
       wakeRandom(),            // randomValue
+      BINARY_PAYLOAD,          // binaryPayload
   };
 
   // runNode() emits its own diagnostics (via logger) before it sleeps, since

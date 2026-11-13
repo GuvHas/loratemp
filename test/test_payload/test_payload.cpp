@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include <cstring>
+#include <string>
 
 #include "payload.h"
 
@@ -208,6 +209,133 @@ void test_shouldForceDisplay_true_when_everything_fails() {
   TEST_ASSERT_TRUE(shouldForceDisplay(false, false));
 }
 
+// ---------- encodeFrame (binary frame v1) ----------
+// The hex vectors are copied from loragateway's test_parser.cpp, where the
+// decoder is tested against them. Change both repos together.
+
+static std::string hexOf(const uint8_t* data, int len) {
+  static const char* kHex = "0123456789ABCDEF";
+  std::string out;
+  for (int i = 0; i < len; i++) {
+    out.push_back(kHex[data[i] >> 4]);
+    out.push_back(kHex[data[i] & 0x0F]);
+  }
+  return out;
+}
+
+static std::string stripSpaces(const char* s) {
+  std::string out;
+  for (; *s; ++s) {
+    if (*s != ' ') out.push_back(*s);
+  }
+  return out;
+}
+
+void test_encodeFrame_matches_gateway_healthy_vector() {
+  uint8_t buf[64];
+  SensorReading r{21.5f, 55.2f, true};
+  int len = encodeFrame(buf, sizeof(buf), "GarageTemp", r, 3.90f, 3.5f, 7, 4, nullptr);
+  TEST_ASSERT_EQUAL(24, len);
+  TEST_ASSERT_EQUAL_STRING(
+      stripSpaces("C1 00 0A 47617261676554656D70 070000 040000 D700 2802 BE").c_str(),
+      hexOf(buf, len).c_str());
+}
+
+void test_encodeFrame_matches_gateway_dht_fail_low_bat_sw_vector() {
+  uint8_t buf[64];
+  SensorReading r{0.0f, 0.0f, false};
+  int len = encodeFrame(buf, sizeof(buf), "ToolroomTemp", r, 3.25f, 3.5f, 1, 1, "49a521c");
+  TEST_ASSERT_EQUAL(34, len);
+  TEST_ASSERT_EQUAL_STRING(
+      stripSpaces("C1 07 0C 546F6F6C726F6F6D54656D70 010000 010000 0080 FFFF 7D 07 34396135323163")
+          .c_str(),
+      hexOf(buf, len).c_str());
+}
+
+void test_encodeFrame_matches_gateway_negative_temp_and_24bit_vector() {
+  uint8_t buf[64];
+  SensorReading r{-12.5f, 0.0f, true};
+  int len = encodeFrame(buf, sizeof(buf), "n", r, 2.0f, 1.0f, 0xABCDEF, 0xFFFFFF, nullptr);
+  TEST_ASSERT_EQUAL_STRING(stripSpaces("C1 00 01 6E EFCDAB FFFFFF 83FF 0000 00").c_str(),
+                           hexOf(buf, len).c_str());
+}
+
+void test_encodeFrame_counters_wrap_to_24_bits() {
+  uint8_t buf[64];
+  SensorReading r{20.0f, 40.0f, true};
+  int len = encodeFrame(buf, sizeof(buf), "n", r, 4.0f, 3.5f, 0x01000005, 0x01000006, nullptr);
+  TEST_ASSERT_EQUAL(15, len);
+  TEST_ASSERT_EQUAL(0x05, buf[4]);
+  TEST_ASSERT_EQUAL(0x00, buf[6]);
+  TEST_ASSERT_EQUAL(0x06, buf[7]);
+  TEST_ASSERT_EQUAL(0x00, buf[9]);
+}
+
+void test_encodeFrame_clamps_battery_voltage_to_byte_range() {
+  uint8_t buf[64];
+  SensorReading r{20.0f, 40.0f, true};
+  encodeFrame(buf, sizeof(buf), "n", r, 5.0f, 3.5f, 1, 1, nullptr);
+  TEST_ASSERT_EQUAL(255, buf[14]);  // 4.55 V, the top of the range
+  encodeFrame(buf, sizeof(buf), "n", r, 0.0f, 3.5f, 1, 1, nullptr);
+  TEST_ASSERT_EQUAL(0, buf[14]);  // 2.00 V, the bottom
+}
+
+void test_encodeFrame_never_emits_null_marker_for_a_real_temperature() {
+  uint8_t buf[64];
+  SensorReading r{-5000.0f, 40.0f, true};  // absurd, but must not read as null
+  encodeFrame(buf, sizeof(buf), "n", r, 4.0f, 3.5f, 1, 1, nullptr);
+  int16_t t = static_cast<int16_t>(buf[10] | (buf[11] << 8));
+  TEST_ASSERT_TRUE(t != INT16_MIN);
+}
+
+void test_encodeFrame_rejects_buffer_too_small() {
+  uint8_t buf[23];
+  SensorReading r{21.5f, 55.2f, true};
+  TEST_ASSERT_EQUAL(-1, encodeFrame(buf, sizeof(buf), "GarageTemp", r, 3.9f, 3.5f, 7, 4, nullptr));
+}
+
+void test_encodeFrame_rejects_empty_or_too_long_id() {
+  uint8_t buf[300];
+  SensorReading r{21.5f, 55.2f, true};
+  TEST_ASSERT_EQUAL(-1, encodeFrame(buf, sizeof(buf), "", r, 3.9f, 3.5f, 7, 4, nullptr));
+  std::string longId(256, 'x');
+  TEST_ASSERT_EQUAL(-1, encodeFrame(buf, sizeof(buf), longId.c_str(), r, 3.9f, 3.5f, 7, 4, nullptr));
+}
+
+void test_encodeFrame_empty_sw_is_omitted() {
+  uint8_t buf[64];
+  SensorReading r{21.5f, 55.2f, true};
+  int len = encodeFrame(buf, sizeof(buf), "GarageTemp", r, 3.9f, 3.5f, 7, 4, "");
+  TEST_ASSERT_EQUAL(24, len);
+  TEST_ASSERT_EQUAL(0, buf[1] & 0x04);
+}
+
+// ---------- shouldReportVersion ----------
+// The gateway never acknowledges, so "sw" is repeated instead: on every send
+// until one succeeds, on the first 3 sends after power-up, and once a day.
+
+void test_shouldReportVersion_until_first_success() {
+  TEST_ASSERT_TRUE(shouldReportVersion(false, 50, 5));
+}
+
+void test_shouldReportVersion_first_three_sends() {
+  TEST_ASSERT_TRUE(shouldReportVersion(true, 1, 5));
+  TEST_ASSERT_TRUE(shouldReportVersion(true, 3, 5));
+  TEST_ASSERT_FALSE(shouldReportVersion(true, 4, 5));
+}
+
+void test_shouldReportVersion_daily() {
+  // 5-minute wakes: 288 sends a day.
+  TEST_ASSERT_TRUE(shouldReportVersion(true, 288, 5));
+  TEST_ASSERT_TRUE(shouldReportVersion(true, 576, 5));
+  TEST_ASSERT_FALSE(shouldReportVersion(true, 287, 5));
+  TEST_ASSERT_FALSE(shouldReportVersion(true, 289, 5));
+}
+
+void test_shouldReportVersion_daily_with_zero_sleep_does_not_divide_by_zero() {
+  TEST_ASSERT_FALSE(shouldReportVersion(true, 10, 0));
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
 
@@ -221,6 +349,20 @@ int main(int argc, char** argv) {
   RUN_TEST(test_formatPayload_falls_back_to_fixed_literal_when_nothing_fits);
 
   RUN_TEST(test_sleepMicros_converts_minutes_to_micros);
+
+  RUN_TEST(test_encodeFrame_matches_gateway_healthy_vector);
+  RUN_TEST(test_encodeFrame_matches_gateway_dht_fail_low_bat_sw_vector);
+  RUN_TEST(test_encodeFrame_matches_gateway_negative_temp_and_24bit_vector);
+  RUN_TEST(test_encodeFrame_counters_wrap_to_24_bits);
+  RUN_TEST(test_encodeFrame_clamps_battery_voltage_to_byte_range);
+  RUN_TEST(test_encodeFrame_never_emits_null_marker_for_a_real_temperature);
+  RUN_TEST(test_encodeFrame_rejects_buffer_too_small);
+  RUN_TEST(test_encodeFrame_rejects_empty_or_too_long_id);
+  RUN_TEST(test_encodeFrame_empty_sw_is_omitted);
+  RUN_TEST(test_shouldReportVersion_until_first_success);
+  RUN_TEST(test_shouldReportVersion_first_three_sends);
+  RUN_TEST(test_shouldReportVersion_daily);
+  RUN_TEST(test_shouldReportVersion_daily_with_zero_sleep_does_not_divide_by_zero);
   RUN_TEST(test_jitteredSleepMicros_without_jitter_is_exact);
   RUN_TEST(test_jitteredSleepMicros_lowest_random_value_gives_minus_jitter);
   RUN_TEST(test_jitteredSleepMicros_spans_plus_jitter);

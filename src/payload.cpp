@@ -70,6 +70,86 @@ int formatPayload(char* buf, size_t bufSize, const char* nodeId,
   return len;
 }
 
+const char* nodeFirmwareVersion() { return NODE_FW_VERSION; }
+
+namespace {
+
+void putU24(uint8_t* p, uint32_t v) {
+  p[0] = static_cast<uint8_t>(v);
+  p[1] = static_cast<uint8_t>(v >> 8);
+  p[2] = static_cast<uint8_t>(v >> 16);
+}
+
+void putU16(uint8_t* p, uint16_t v) {
+  p[0] = static_cast<uint8_t>(v);
+  p[1] = static_cast<uint8_t>(v >> 8);
+}
+
+long clampLong(long v, long lo, long hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+}  // namespace
+
+int encodeFrame(uint8_t* buf, size_t bufSize, const char* nodeId, const SensorReading& reading,
+                float batteryVoltage, float lowBatteryThreshold, uint32_t bootCount,
+                uint32_t txCount, const char* swVersion) {
+  const uint8_t kMagic = 0xC1;
+  const uint8_t kFlagLowBattery = 0x01;
+  const uint8_t kFlagSensorError = 0x02;
+  const uint8_t kFlagSwPresent = 0x04;
+
+  size_t idLen = nodeId ? strlen(nodeId) : 0;
+  if (idLen == 0 || idLen > 255) {
+    return -1;
+  }
+  size_t swLen = swVersion ? strlen(swVersion) : 0;
+  if (swLen > 255) {
+    swLen = 255;
+  }
+  size_t total = 3 + idLen + 11 + (swLen > 0 ? 1 + swLen : 0);
+  if (buf == nullptr || total > bufSize) {
+    return -1;
+  }
+
+  uint8_t flags = 0;
+  if (batteryVoltage < lowBatteryThreshold) flags |= kFlagLowBattery;
+  if (!reading.valid) flags |= kFlagSensorError;
+  if (swLen > 0) flags |= kFlagSwPresent;
+
+  buf[0] = kMagic;
+  buf[1] = flags;
+  buf[2] = static_cast<uint8_t>(idLen);
+  memcpy(buf + 3, nodeId, idLen);
+  uint8_t* p = buf + 3 + idLen;
+  putU24(p, bootCount & 0xFFFFFFu);
+  putU24(p + 3, txCount & 0xFFFFFFu);
+
+  // 0x8000 and 0xFFFF are the null markers, so real values stop one short.
+  uint16_t t = 0x8000;
+  uint16_t h = 0xFFFF;
+  if (reading.valid) {
+    t = static_cast<uint16_t>(static_cast<int16_t>(
+        clampLong(std::lround(reading.temperatureC * 10.0f), -32767, 32767)));
+    h = static_cast<uint16_t>(clampLong(std::lround(reading.humidityPct * 10.0f), 0, 0xFFFE));
+  }
+  putU16(p + 6, t);
+  putU16(p + 8, h);
+  p[10] = static_cast<uint8_t>(clampLong(std::lround(batteryVoltage * 100.0f) - 200, 0, 255));
+
+  if (swLen > 0) {
+    p[11] = static_cast<uint8_t>(swLen);
+    memcpy(p + 12, swVersion, swLen);
+  }
+  return static_cast<int>(total);
+}
+
+bool shouldReportVersion(bool versionReported, uint32_t txCount, int sleepMinutes) {
+  if (!versionReported) return true;
+  if (txCount >= 1 && txCount <= 3) return true;
+  if (sleepMinutes <= 0) return false;
+  uint32_t sendsPerDay = static_cast<uint32_t>(24 * 60 / sleepMinutes);
+  return sendsPerDay > 0 && txCount % sendsPerDay == 0;
+}
+
 uint64_t sleepMicros(int sleepMinutes) {
   return static_cast<uint64_t>(sleepMinutes) * 60ULL * 1000000ULL;
 }
