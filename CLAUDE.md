@@ -53,6 +53,10 @@ the pull request and leave it as a manual check for the owner.
 
 - **No WiFi and no OTA.** WiFi and Bluetooth are switched off to save battery.
   New firmware reaches a node only when someone connects a cable to it.
+- **Every wake is bounded by the task watchdog** (`WAKE_WATCHDOG_S`, 30 s,
+  never fed). A hang restarts the chip; RTC memory is then re-initialised, so
+  the next packet carries `boot: 1`. A change that makes a normal wake longer
+  must stay well inside that timeout.
 - **Every code path ends in deep sleep.** `runNode()` calls
   `clock.deepSleep()` on success, sensor failure, radio failure and radio
   init failure. A path that returns without sleeping drains the battery.
@@ -66,7 +70,11 @@ the pull request and leave it as a manual check for the owner.
 1. Read the DHT22, up to 3 attempts.
 2. Read the battery voltage.
 3. Start the radio. If that fails, sleep without sending.
-4. Increment `txCount`, build the payload, send it, up to 2 attempts.
+4. Increment `txCount`, build the payload, send it, up to 2 attempts. Each
+   attempt waits for the radio's TX-done interrupt for at most
+   `loraTxTimeoutMs()` (twice the airtime plus 100 ms) and counts as failed
+   if it does not arrive. The library's blocking `endPacket()` has no timeout,
+   so do not go back to it.
 5. Show the reading on the display on the first boot, every 12th boot, or
    when the sensor, the radio or the battery needs attention.
 6. Deep sleep for `SLEEP_MINUTES`.

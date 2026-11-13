@@ -41,6 +41,18 @@ int formatPayload(char* buf, size_t bufSize, const char* nodeId,
 // Deep-sleep duration in microseconds, for esp_sleep_enable_timer_wakeup.
 uint64_t sleepMicros(int sleepMinutes);
 
+// Time on air in milliseconds (rounded) for one LoRa packet of payloadLen
+// bytes, using the Semtech SX127x formula with this project's fixed radio
+// settings: coding rate 4/5, 8-symbol preamble, explicit header, CRC on.
+// Low data rate optimisation is applied when a symbol exceeds 16 ms, as
+// the SX127x requires.
+uint32_t loraAirtimeMs(size_t payloadLen, int spreadingFactor, long bandwidthHz);
+
+// How long a send may wait for the radio's TX-done signal before it is
+// treated as failed: twice the airtime plus 100 ms. A radio that never
+// signals TX-done must not keep the node awake (and draining) forever.
+uint32_t loraTxTimeoutMs(size_t payloadLen, int spreadingFactor, long bandwidthHz);
+
 // True on the regular display cadence: the very first boot, or every
 // Nth boot thereafter.
 bool isScheduledDisplayBoot(uint32_t bootCount, int displayEveryN);
