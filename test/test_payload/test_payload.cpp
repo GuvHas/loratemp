@@ -105,6 +105,37 @@ void test_sleepMicros_converts_minutes_to_micros() {
   TEST_ASSERT_EQUAL_UINT64(60ULL * 60ULL * 1000000ULL, sleepMicros(60));
 }
 
+// ---------- jitteredSleepMicros ----------
+// Every node sleeping exactly 5 minutes keeps two nodes that were powered up
+// together transmitting at the same moment, colliding on every wake. A
+// random offset of up to +/- jitterMaxMs spreads them apart.
+
+void test_jitteredSleepMicros_without_jitter_is_exact() {
+  TEST_ASSERT_EQUAL_UINT64(sleepMicros(5), jitteredSleepMicros(5, 0, 12345));
+}
+
+void test_jitteredSleepMicros_lowest_random_value_gives_minus_jitter() {
+  TEST_ASSERT_EQUAL_UINT64(sleepMicros(5) - 5000ULL * 1000ULL, jitteredSleepMicros(5, 5000, 0));
+}
+
+void test_jitteredSleepMicros_spans_plus_jitter() {
+  // randomValue % (2 * 5000 + 1) == 10000 -> offset +5000 ms
+  TEST_ASSERT_EQUAL_UINT64(sleepMicros(5) + 5000ULL * 1000ULL, jitteredSleepMicros(5, 5000, 10000));
+}
+
+void test_jitteredSleepMicros_stays_within_bounds_for_any_random_value() {
+  const uint32_t samples[] = {1u, 4999u, 5000u, 5001u, 123456789u, 0x7FFFFFFFu, 0xFFFFFFFFu};
+  for (uint32_t r : samples) {
+    uint64_t us = jitteredSleepMicros(5, 5000, r);
+    TEST_ASSERT_GREATER_OR_EQUAL(sleepMicros(5) - 5000ULL * 1000ULL, us);
+    TEST_ASSERT_LESS_OR_EQUAL(sleepMicros(5) + 5000ULL * 1000ULL, us);
+  }
+}
+
+void test_jitteredSleepMicros_never_below_one_second() {
+  TEST_ASSERT_EQUAL_UINT64(1000000ULL, jitteredSleepMicros(0, 5000, 0));
+}
+
 // ---------- isScheduledDisplayBoot ----------
 
 void test_isScheduledDisplayBoot_true_on_first_boot() {
@@ -162,6 +193,11 @@ int main(int argc, char** argv) {
   RUN_TEST(test_formatPayload_falls_back_to_fixed_literal_when_nothing_fits);
 
   RUN_TEST(test_sleepMicros_converts_minutes_to_micros);
+  RUN_TEST(test_jitteredSleepMicros_without_jitter_is_exact);
+  RUN_TEST(test_jitteredSleepMicros_lowest_random_value_gives_minus_jitter);
+  RUN_TEST(test_jitteredSleepMicros_spans_plus_jitter);
+  RUN_TEST(test_jitteredSleepMicros_stays_within_bounds_for_any_random_value);
+  RUN_TEST(test_jitteredSleepMicros_never_below_one_second);
 
   RUN_TEST(test_isScheduledDisplayBoot_true_on_first_boot);
   RUN_TEST(test_isScheduledDisplayBoot_true_on_every_nth_boot);

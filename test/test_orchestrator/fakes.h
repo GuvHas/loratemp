@@ -114,5 +114,9 @@ inline NodeConfig defaultTestConfig() {
       5,           // sleepMinutes
       12,          // displayEveryN
       2,           // displaySeconds
+      3.2f,        // criticalBatVoltage
+      60,          // criticalSleepMinutes
+      0,           // sleepJitterMs (0 keeps sleep durations exact in tests)
+      0,           // randomValue
   };
 }

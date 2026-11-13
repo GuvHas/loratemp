@@ -73,6 +73,20 @@ uint64_t sleepMicros(int sleepMinutes) {
   return static_cast<uint64_t>(sleepMinutes) * 60ULL * 1000000ULL;
 }
 
+uint64_t jitteredSleepMicros(int sleepMinutes, int jitterMaxMs, uint32_t randomValue) {
+  int64_t baseMs = static_cast<int64_t>(sleepMicros(sleepMinutes) / 1000ULL);
+  int64_t offsetMs = 0;
+  if (jitterMaxMs > 0) {
+    uint32_t span = 2u * static_cast<uint32_t>(jitterMaxMs) + 1u;
+    offsetMs = static_cast<int64_t>(randomValue % span) - jitterMaxMs;
+  }
+  int64_t ms = baseMs + offsetMs;
+  if (ms < 1000) {
+    ms = 1000;
+  }
+  return static_cast<uint64_t>(ms) * 1000ULL;
+}
+
 bool isScheduledDisplayBoot(uint32_t bootCount, int displayEveryN) {
   return bootCount == 1 || (displayEveryN > 0 && bootCount % displayEveryN == 0);
 }

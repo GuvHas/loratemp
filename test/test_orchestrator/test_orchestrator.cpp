@@ -358,6 +358,94 @@ void test_low_battery_forces_display_and_sets_flag() {
   TEST_ASSERT_NOT_NULL(strstr(outcome.payload, "\"lb\":1"));
 }
 
+// ---------- Critical battery ----------
+// Below criticalBatVoltage the node still sends (so Home Assistant sees the
+// last reading and lb:1) but then sleeps criticalSleepMinutes instead of
+// sleepMinutes, to stop draining a nearly empty cell.
+
+void test_critical_battery_sends_then_sleeps_long() {
+  NodeConfig cfg = defaultTestConfig();
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  power.voltage = 3.1f;  // below cfg.criticalBatVoltage (3.2)
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+  bool versionReported = true;  // already reported; this test is not about that
+
+  NodeOutcome outcome = runNode(cfg, 2, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_TRUE(outcome.loraOk);
+  TEST_ASSERT_NOT_NULL(strstr(outcome.payload, "\"lb\":1"));
+  TEST_ASSERT_EQUAL(1, clock.sleepCalls);
+  TEST_ASSERT_EQUAL_UINT64(sleepMicros(cfg.criticalSleepMinutes), clock.sleptMicros);
+}
+
+void test_critical_battery_sleeps_long_even_when_radio_init_fails() {
+  NodeConfig cfg = defaultTestConfig();
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.beginResult = false;
+  FakeDisplay display;
+  FakePower power;
+  power.voltage = 3.1f;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+  bool versionReported = true;  // already reported; this test is not about that
+
+  runNode(cfg, 2, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_EQUAL(1, clock.sleepCalls);
+  TEST_ASSERT_EQUAL_UINT64(sleepMicros(cfg.criticalSleepMinutes), clock.sleptMicros);
+}
+
+void test_low_but_not_critical_battery_keeps_normal_sleep() {
+  NodeConfig cfg = defaultTestConfig();
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  power.voltage = 3.25f;  // below lowBatVoltage (3.3), above critical (3.2)
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+  bool versionReported = true;  // already reported; this test is not about that
+
+  runNode(cfg, 2, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_EQUAL_UINT64(sleepMicros(cfg.sleepMinutes), clock.sleptMicros);
+}
+
+// ---------- Sleep jitter ----------
+
+void test_sleep_duration_includes_jitter_from_random_value() {
+  NodeConfig cfg = defaultTestConfig();
+  cfg.sleepJitterMs = 5000;
+  cfg.randomValue = 0;  // lowest value -> -5000 ms
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+  bool versionReported = true;  // already reported; this test is not about that
+
+  runNode(cfg, 2, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_EQUAL_UINT64(sleepMicros(cfg.sleepMinutes) - 5000ULL * 1000ULL, clock.sleptMicros);
+}
+
 // ---------- Sleep fallback: every path must reach deep sleep exactly once ----------
 
 void test_sleep_called_exactly_once_on_success_path() {
@@ -455,6 +543,10 @@ int main(int argc, char** argv) {
 
   RUN_TEST(test_low_battery_forces_display_and_sets_flag);
 
+  RUN_TEST(test_critical_battery_sends_then_sleeps_long);
+  RUN_TEST(test_critical_battery_sleeps_long_even_when_radio_init_fails);
+  RUN_TEST(test_low_but_not_critical_battery_keeps_normal_sleep);
+  RUN_TEST(test_sleep_duration_includes_jitter_from_random_value);
   RUN_TEST(test_sleep_called_exactly_once_on_success_path);
   RUN_TEST(test_sleep_called_exactly_once_when_dht_fails);
   RUN_TEST(test_sleep_called_exactly_once_when_lora_send_fails);

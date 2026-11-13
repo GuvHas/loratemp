@@ -16,6 +16,16 @@ struct NodeConfig {
   int sleepMinutes;
   int displayEveryN;
   int displaySeconds;
+  // Below this the node still sends, then sleeps criticalSleepMinutes
+  // instead of sleepMinutes to stop draining a nearly empty cell.
+  float criticalBatVoltage;
+  int criticalSleepMinutes;
+  // Each sleep is offset by up to +/- sleepJitterMs so nodes powered up
+  // together drift apart instead of colliding on every wake.
+  int sleepJitterMs;
+  // A fresh random number for this wake (esp_random() on hardware); fixed
+  // in tests so sleep durations are predictable.
+  uint32_t randomValue;
 };
 
 struct NodeOutcome {
