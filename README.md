@@ -76,6 +76,34 @@ Packet Loss.
   ![Home Assistant sensors for a loratemp node](docs/ha-node-sensors.png)
 -->
 
+## Download firmware
+
+Every push to `main` builds the firmware and publishes it to the
+[**firmware-latest** release](https://github.com/GuvHas/loratemp/releases/tag/firmware-latest).
+The links work without a GitHub account.
+
+| File | Use it for | Flash at |
+| --- | --- | --- |
+| [`firmware.bin`](https://github.com/GuvHas/loratemp/releases/download/firmware-latest/firmware.bin) | Updating a node that already runs this project | `0x10000` |
+| [`firmware-full.bin`](https://github.com/GuvHas/loratemp/releases/download/firmware-latest/firmware-full.bin) | A blank or erased board: bootloader, partition table and app in one image | `0x0` |
+
+```sh
+esptool.py --chip esp32 write_flash 0x10000 firmware.bin       # existing node
+esptool.py --chip esp32 write_flash 0x0 firmware-full.bin      # new board
+```
+
+Without installing anything, Espressif's browser flasher
+[esptool-js](https://espressif.github.io/esptool-js/) (Chrome or Edge) can
+write either file: connect, pick the file and enter its offset.
+
+> **The prebuilt firmware uses the default settings**, including
+> `NodeId = "GarageTemp"`. Every node needs its own `NodeId`, so for a
+> second node, or any other setting, change `src/main.cpp` and build it
+> yourself (see "Building and testing").
+
+Each pull request builds the same files as a workflow artifact, on the run's
+page under **Artifacts** (needs a GitHub sign-in).
+
 ## Configuration
 
 Settings are constants at the top of `src/main.cpp`. Set `NodeId` per device
