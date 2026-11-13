@@ -49,6 +49,17 @@ int encodeFrame(uint8_t* buf, size_t bufSize, const char* nodeId, const SensorRe
                 float batteryVoltage, float lowBatteryThreshold, uint32_t bootCount,
                 uint32_t txCount, const char* swVersion);
 
+// Length of a MAC-derived node id ("n-" + 6 hex digits), without the NUL.
+constexpr size_t kMacNodeIdLength = 8;
+
+// Writes the node id to use into out (at least kMacNodeIdLength + 1 bytes):
+// configuredId when it is non-null and non-empty, otherwise "n-" plus the
+// last 3 bytes of the chip's MAC in lowercase hex. efuseMac is
+// ESP.getEfuseMac(), which holds the first MAC byte in its lowest 8 bits,
+// so MAC aa:bb:cc:dd:ee:ff gives "n-ddeeff", matching the printed MAC.
+// Returns out, or configuredId itself when that is used.
+const char* resolveNodeId(const char* configuredId, uint64_t efuseMac, char* out, size_t outSize);
+
 // This build's firmware version (NODE_FW_VERSION, or "dev").
 const char* nodeFirmwareVersion();
 

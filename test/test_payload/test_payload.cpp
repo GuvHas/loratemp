@@ -336,8 +336,48 @@ void test_shouldReportVersion_daily_with_zero_sleep_does_not_divide_by_zero() {
   TEST_ASSERT_FALSE(shouldReportVersion(true, 10, 0));
 }
 
+// MAC aa:bb:cc:dd:ee:ff as ESP.getEfuseMac() returns it: first byte lowest.
+static const uint64_t kTestMac = 0x0000FFEEDDCCBBAAull;
+
+void test_resolveNodeId_uses_mac_when_not_configured() {
+  char buf[16];
+  TEST_ASSERT_EQUAL_STRING("n-ddeeff", resolveNodeId(nullptr, kTestMac, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_STRING("n-ddeeff", resolveNodeId("", kTestMac, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_UINT32(kMacNodeIdLength, strlen(buf));
+}
+
+void test_resolveNodeId_pads_small_bytes_with_zeros() {
+  char buf[16];
+  TEST_ASSERT_EQUAL_STRING("n-010a00", resolveNodeId(nullptr, 0x00000A01000000ull, buf, sizeof(buf)));
+}
+
+void test_resolveNodeId_prefers_configured_id() {
+  char buf[16];
+  TEST_ASSERT_EQUAL_STRING("GarageTemp", resolveNodeId("GarageTemp", kTestMac, buf, sizeof(buf)));
+}
+
+void test_resolveNodeId_buffer_too_small_gives_empty_id() {
+  char buf[kMacNodeIdLength];
+  TEST_ASSERT_EQUAL_STRING("", resolveNodeId(nullptr, kTestMac, buf, sizeof(buf)));
+}
+
+void test_resolveNodeId_result_fits_binary_frame() {
+  char id[16];
+  resolveNodeId(nullptr, kTestMac, id, sizeof(id));
+  SensorReading reading{21.5f, 55.2f, true};
+  uint8_t frame[64];
+  // 3 header bytes + 8-byte id + 11 bytes of boot, seq, t, h and v: two
+  // bytes shorter than "GarageTemp".
+  TEST_ASSERT_EQUAL_INT(22, encodeFrame(frame, sizeof(frame), id, reading, 3.9f, 3.5f, 7, 4, nullptr));
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_resolveNodeId_uses_mac_when_not_configured);
+  RUN_TEST(test_resolveNodeId_pads_small_bytes_with_zeros);
+  RUN_TEST(test_resolveNodeId_prefers_configured_id);
+  RUN_TEST(test_resolveNodeId_buffer_too_small_gives_empty_id);
+  RUN_TEST(test_resolveNodeId_result_fits_binary_frame);
 
   RUN_TEST(test_formatPayload_valid_reading);
   RUN_TEST(test_formatPayload_dht_failure_emits_null_fields);

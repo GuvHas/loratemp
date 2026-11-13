@@ -26,7 +26,7 @@ Stage files by name and leave `.pio/` out of commits.
 
 | Path | What it holds |
 | --- | --- |
-| `include/payload.h`, `src/payload.cpp` | Pure functions: `formatPayload()` (JSON), `encodeFrame()` (binary), sleep duration, display scheduling. No Arduino headers. |
+| `include/payload.h`, `src/payload.cpp` | Pure functions: `formatPayload()` (JSON), `encodeFrame()` (binary), `resolveNodeId()`, sleep duration, display scheduling. No Arduino headers. |
 | `include/hal.h` | Interfaces for sensor, radio, display, power, clock and logger. |
 | `include/hal_esp32.h`, `src/hal_esp32.cpp` | ESP32 implementations of those interfaces. |
 | `include/orchestrator.h`, `src/orchestrator.cpp` | `runNode()`: one full wake cycle. Uses only `hal.h`. |
@@ -87,7 +87,11 @@ the pull request and leave it as a manual check for the owner.
    battery is below `CRITICAL_BAT_VOLTAGE`. The packet is still sent first.
 
 `NodeId`, the sleep interval and the radio settings are constants at the top of
-`src/main.cpp`. `NodeId` is set per device before flashing.
+`src/main.cpp`. `NodeId` defaults to empty (or the `NODE_ID` build flag), and
+`resolveNodeId()` then derives the id from the MAC: `n-` plus the last 3 MAC
+bytes in hex, 8 bytes in total. A fixed id still wins, so a node can keep an
+id that already has history in Home Assistant. The readable name lives on
+the gateway (`/devices`), not on the node.
 
 ## State that survives deep sleep
 
@@ -105,6 +109,7 @@ increment order without changing the gateway first.
 {"id":"GarageTemp","t":21.5,"h":55.2,"v":3.90,"boot":7,"seq":4,"lb":0,"err":"none","sw":"fde884a"}
 ```
 
+- `id` is the resolved node id, `n-xxxxxx` unless a fixed `NodeId` is set.
 - `t` and `h` are `null` and `err` is `"dht"` when the sensor read failed.
 - `seq` is `txCount`. `lb` is 1 when the battery is below `LOW_BAT_VOLTAGE`.
 - `sw` is `NODE_FW_VERSION`. `shouldReportVersion()` decides when it goes
