@@ -27,9 +27,12 @@ void test_dht_succeeds_on_first_attempt() {
 
   TEST_ASSERT_TRUE(outcome.dhtOk);
   TEST_ASSERT_EQUAL(1, sensor.readCalls);
-  // Only the initial settle delay — no DHT retry delay, no LoRa retry delay.
-  TEST_ASSERT_EQUAL(1, (int)clock.delaysMs.size());
-  TEST_ASSERT_EQUAL_UINT32(2000, clock.delaysMs[0]);
+  // Only the initial settle wait — no DHT retry wait, no LoRa retry delay.
+  // The settle wait is a low-power idle (light sleep on hardware), never a
+  // busy delay: the DHT22 only needs time, not the CPU.
+  TEST_ASSERT_EQUAL(0, (int)clock.delaysMs.size());
+  TEST_ASSERT_EQUAL(1, (int)clock.idlesMs.size());
+  TEST_ASSERT_EQUAL_UINT32(2000, clock.idlesMs[0]);
   TEST_ASSERT_EQUAL(1, (int)logger.messages.size());
   TEST_ASSERT_TRUE(logger.messages[0].rfind("Sending: {", 0) == 0);
 }
@@ -51,10 +54,12 @@ void test_dht_retries_then_succeeds() {
 
   TEST_ASSERT_TRUE(outcome.dhtOk);
   TEST_ASSERT_EQUAL(3, sensor.readCalls);
-  // Settle delay + 2 inter-attempt retry delays, all 2000ms.
-  TEST_ASSERT_EQUAL(3, (int)clock.delaysMs.size());
+  // Settle wait + 2 inter-attempt retry waits, all 2000ms and all
+  // low-power idles rather than busy delays.
+  TEST_ASSERT_EQUAL(0, (int)clock.delaysMs.size());
+  TEST_ASSERT_EQUAL(3, (int)clock.idlesMs.size());
   for (int i = 0; i < 3; i++) {
-    TEST_ASSERT_EQUAL_UINT32(2000, clock.delaysMs[i]);
+    TEST_ASSERT_EQUAL_UINT32(2000, clock.idlesMs[i]);
   }
 }
 
@@ -152,9 +157,9 @@ void test_lora_send_retries_then_succeeds() {
   TEST_ASSERT_TRUE(outcome.loraOk);
   TEST_ASSERT_EQUAL(2, radio.sendCalls);
   TEST_ASSERT_EQUAL_UINT32(1, txCount);
-  // Settle delay (2000) + one inter-retry LoRa delay (100).
-  TEST_ASSERT_EQUAL(2, (int)clock.delaysMs.size());
-  TEST_ASSERT_EQUAL_UINT32(100, clock.delaysMs[1]);
+  // One inter-retry LoRa delay (100); the settle wait is an idle.
+  TEST_ASSERT_EQUAL(1, (int)clock.delaysMs.size());
+  TEST_ASSERT_EQUAL_UINT32(100, clock.delaysMs[0]);
 }
 
 void test_lora_send_fails_after_all_retries() {
@@ -335,9 +340,35 @@ void test_display_shown_on_scheduled_boot_calls_init_once() {
   TEST_ASSERT_EQUAL(1, display.offCalls);
 }
 
+// Holding the reading on the OLED needs time, not the CPU: the panel keeps
+// its own framebuffer, so the hold is a low-power idle.
+void test_display_hold_is_low_power_idle() {
+  NodeConfig cfg = defaultTestConfig();
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+  bool versionReported = true;  // already reported; this test is not about that
+
+  runNode(cfg, cfg.displayEveryN, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_EQUAL(0, (int)clock.delaysMs.size());
+  TEST_ASSERT_EQUAL(2, (int)clock.idlesMs.size());  // settle, then display hold
+  TEST_ASSERT_EQUAL_UINT32(cfg.displaySeconds * 1000, clock.idlesMs[1]);
+}
+
 // ---------- Low battery ----------
 
-void test_low_battery_forces_display_and_sets_flag() {
+// A low battery used to force the OLED on every wake, which kept the node
+// awake ~2 s longer on every cycle exactly when the battery could least
+// afford it. The "lb" flag still reaches the gateway every wake, and the
+// scheduled display boots still show the warning.
+void test_low_battery_sets_flag_without_forcing_display() {
   NodeConfig cfg = defaultTestConfig();
   FakeSensor sensor;
   sensor.queuedReads = {{21.5f, 55.2f, true}};
@@ -353,9 +384,29 @@ void test_low_battery_forces_display_and_sets_flag() {
 
   NodeOutcome outcome = runNode(cfg, 2, txCount, versionReported, sensor, radio, display, power, clock, logger);
 
+  TEST_ASSERT_FALSE(outcome.displayed);
+  TEST_ASSERT_EQUAL(0, display.initCalls);
+  TEST_ASSERT_NOT_NULL(strstr(outcome.payload, "\"lb\":1"));
+}
+
+void test_low_battery_shown_on_scheduled_display_boot() {
+  NodeConfig cfg = defaultTestConfig();
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  power.voltage = 3.0f;  // below cfg.lowBatVoltage (3.3)
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+  bool versionReported = true;  // already reported; this test is not about that
+
+  NodeOutcome outcome = runNode(cfg, cfg.displayEveryN, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
   TEST_ASSERT_TRUE(outcome.displayed);
   TEST_ASSERT_TRUE(display.lastLowBat);
-  TEST_ASSERT_NOT_NULL(strstr(outcome.payload, "\"lb\":1"));
 }
 
 // ---------- Critical battery ----------
@@ -541,7 +592,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_display_stays_off_when_healthy_and_not_scheduled);
   RUN_TEST(test_display_shown_on_scheduled_boot_calls_init_once);
 
-  RUN_TEST(test_low_battery_forces_display_and_sets_flag);
+  RUN_TEST(test_display_hold_is_low_power_idle);
+  RUN_TEST(test_low_battery_sets_flag_without_forcing_display);
+  RUN_TEST(test_low_battery_shown_on_scheduled_display_boot);
 
   RUN_TEST(test_critical_battery_sends_then_sleeps_long);
   RUN_TEST(test_critical_battery_sleeps_long_even_when_radio_init_fails);

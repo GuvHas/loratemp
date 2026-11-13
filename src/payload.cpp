@@ -1,5 +1,6 @@
 #include "payload.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -87,10 +88,28 @@ uint64_t jitteredSleepMicros(int sleepMinutes, int jitterMaxMs, uint32_t randomV
   return static_cast<uint64_t>(ms) * 1000ULL;
 }
 
+uint32_t loraAirtimeMs(size_t payloadLen, int spreadingFactor, long bandwidthHz) {
+  const double preambleSymbols = 8.0;
+  const int codingRate = 1;  // 4/5
+  const int crc = 1;
+  const int implicitHeader = 0;
+  double symbolMs = std::ldexp(1.0, spreadingFactor) * 1000.0 / static_cast<double>(bandwidthHz);
+  int lowDataRate = symbolMs > 16.0 ? 1 : 0;
+  double numerator = 8.0 * static_cast<double>(payloadLen) - 4.0 * spreadingFactor + 28.0 +
+                     16.0 * crc - 20.0 * implicitHeader;
+  double denominator = 4.0 * (spreadingFactor - 2 * lowDataRate);
+  double extra = std::ceil(numerator / denominator) * (codingRate + 4);
+  double payloadSymbols = 8.0 + (extra > 0.0 ? extra : 0.0);
+  double totalMs = (preambleSymbols + 4.25 + payloadSymbols) * symbolMs;
+  return static_cast<uint32_t>(std::lround(totalMs));
+}
+
+uint32_t loraTxTimeoutMs(size_t payloadLen, int spreadingFactor, long bandwidthHz) {
+  return 2 * loraAirtimeMs(payloadLen, spreadingFactor, bandwidthHz) + 100;
+}
+
 bool isScheduledDisplayBoot(uint32_t bootCount, int displayEveryN) {
   return bootCount == 1 || (displayEveryN > 0 && bootCount % displayEveryN == 0);
 }
 
-bool shouldForceDisplay(bool dhtOk, bool loraOk, bool lowBattery) {
-  return !dhtOk || !loraOk || lowBattery;
-}
+bool shouldForceDisplay(bool dhtOk, bool loraOk) { return !dhtOk || !loraOk; }

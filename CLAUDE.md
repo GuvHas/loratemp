@@ -53,6 +53,10 @@ the pull request and leave it as a manual check for the owner.
 
 - **No WiFi and no OTA.** WiFi and Bluetooth are switched off to save battery.
   New firmware reaches a node only when someone connects a cable to it.
+- **Every wake is bounded by the task watchdog** (`WAKE_WATCHDOG_S`, 30 s,
+  never fed). A hang restarts the chip; RTC memory is then re-initialised, so
+  the next packet carries `boot: 1`. A change that makes a normal wake longer
+  must stay well inside that timeout.
 - **Every code path ends in deep sleep.** `runNode()` calls
   `clock.deepSleep()` on success, sensor failure, radio failure and radio
   init failure. A path that returns without sleeping drains the battery.
@@ -63,12 +67,20 @@ the pull request and leave it as a manual check for the owner.
 
 `setup()` increments `bootCount`, builds the adapters and calls `runNode()`:
 
-1. Read the DHT22, up to 3 attempts.
+1. Wait `dhtSettleDelayMs` for the DHT22 (it is not always powered), then
+   read it, up to 2 attempts 2 s apart. Waits that need time but not the
+   CPU (the settle, DHT retries, the OLED hold) use `IClock::idleMs()`, which
+   is light sleep on hardware. Short waits around the radio use `delayMs()`.
 2. Read the battery voltage.
 3. Start the radio. If that fails, sleep without sending.
-4. Increment `txCount`, build the payload, send it, up to 2 attempts.
+4. Increment `txCount`, build the payload, send it, up to 2 attempts. Each
+   attempt waits for the radio's TX-done interrupt for at most
+   `loraTxTimeoutMs()` (twice the airtime plus 100 ms) and counts as failed
+   if it does not arrive. The library's blocking `endPacket()` has no timeout,
+   so do not go back to it.
 5. Show the reading on the display on the first boot, every 12th boot, or
-   when the sensor, the radio or the battery needs attention.
+   when the sensor or the radio failed. A low battery does not force it: that
+   would lengthen every wake when the battery can least afford it.
 6. Deep sleep for `SLEEP_MINUTES`, offset by a random amount up to
    `SLEEP_JITTER_MS` either way, or for `CRITICAL_SLEEP_MINUTES` when the
    battery is below `CRITICAL_BAT_VOLTAGE`. The packet is still sent first.

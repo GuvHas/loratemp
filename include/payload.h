@@ -45,10 +45,25 @@ uint64_t sleepMicros(int sleepMinutes);
 // [-jitterMaxMs, +jitterMaxMs], picked by randomValue. Never less than 1 s.
 uint64_t jitteredSleepMicros(int sleepMinutes, int jitterMaxMs, uint32_t randomValue);
 
+// Time on air in milliseconds (rounded) for one LoRa packet of payloadLen
+// bytes, using the Semtech SX127x formula with this project's fixed radio
+// settings: coding rate 4/5, 8-symbol preamble, explicit header, CRC on.
+// Low data rate optimisation is applied when a symbol exceeds 16 ms, as
+// the SX127x requires.
+uint32_t loraAirtimeMs(size_t payloadLen, int spreadingFactor, long bandwidthHz);
+
+// How long a send may wait for the radio's TX-done signal before it is
+// treated as failed: twice the airtime plus 100 ms. A radio that never
+// signals TX-done must not keep the node awake (and draining) forever.
+uint32_t loraTxTimeoutMs(size_t payloadLen, int spreadingFactor, long bandwidthHz);
+
 // True on the regular display cadence: the very first boot, or every
 // Nth boot thereafter.
 bool isScheduledDisplayBoot(uint32_t bootCount, int displayEveryN);
 
 // True if the display should be forced on outside its normal cadence
-// because something needs the operator's attention.
-bool shouldForceDisplay(bool dhtOk, bool loraOk, bool lowBattery);
+// because the sensor or the radio failed. A low battery deliberately does
+// not force it: that would add the display hold to every wake exactly when
+// the battery can least afford it. The "lb" flag still goes out every wake
+// and the scheduled display boots still show the warning.
+bool shouldForceDisplay(bool dhtOk, bool loraOk);

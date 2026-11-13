@@ -28,7 +28,7 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
   }
 
   sensor.begin();
-  clock.delayMs(cfg.dhtSettleDelayMs);  // let sensor and voltage rail stabilize
+  clock.idleMs(cfg.dhtSettleDelayMs);  // let sensor and voltage rail stabilize
 
   SensorReading reading{0.0f, 0.0f, false};
   for (int attempt = 0; attempt < cfg.dhtMaxRetries; attempt++) {
@@ -37,7 +37,7 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
       break;
     }
     if (attempt < cfg.dhtMaxRetries - 1) {
-      clock.delayMs(cfg.dhtRetryDelayMs);
+      clock.idleMs(cfg.dhtRetryDelayMs);
     }
   }
   outcome.dhtOk = reading.valid;
@@ -93,7 +93,7 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
     versionReported = true;
   }
 
-  if (!showDisplay && shouldForceDisplay(outcome.dhtOk, outcome.loraOk, lowBat)) {
+  if (!showDisplay && shouldForceDisplay(outcome.dhtOk, outcome.loraOk)) {
     showDisplay = true;
     display.init();
   }
@@ -101,7 +101,7 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
   outcome.displayed = showDisplay;
   if (showDisplay) {
     display.showReading(reading, voltage, lowBat, outcome.loraOk);
-    clock.delayMs(cfg.displaySeconds * 1000);
+    clock.idleMs(cfg.displaySeconds * 1000);
   }
 
   goToSleep(cfg, clock, radio, display, showDisplay, criticalBat);

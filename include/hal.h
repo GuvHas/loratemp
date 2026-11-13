@@ -40,7 +40,12 @@ class IPower {
 class IClock {
  public:
   virtual ~IClock() = default;
+  // Busy wait: the CPU stays awake. Only for short waits around the radio.
   virtual void delayMs(uint32_t ms) = 0;
+  // Low-power wait for something that needs time but not the CPU (sensor
+  // settling, holding the OLED). Light sleep on hardware: GPIO levels, RAM,
+  // the radio's registers and the OLED's framebuffer are all kept.
+  virtual void idleMs(uint32_t ms) = 0;
   virtual void deepSleep(uint64_t micros) = 0;  // never returns on real hardware
 };
 
