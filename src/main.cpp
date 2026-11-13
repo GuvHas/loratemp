@@ -11,10 +11,14 @@
 const char* NodeId = "GarageTemp";
 const int SLEEP_MINUTES = 5;
 const int DISPLAY_SECONDS = 2;       // How long to show data on OLED before sleep
-const float LOW_BAT_VOLTAGE = 3.3f;  // Voltage threshold for low battery warning
+// Voltage threshold for the low battery warning (lb). The old, uncalibrated
+// reading was about 0.25 V low (3.93 V vs 4.18 V calibrated on the same
+// battery), so the old 3.3 V threshold really fired around 3.5 V; 3.5 V keeps
+// the warning at the same real battery level.
+const float LOW_BAT_VOLTAGE = 3.5f;
 // Below this the node still sends (with lb:1), then sleeps CRITICAL_SLEEP_MINUTES
 // to protect a nearly empty LiPo from over-discharge.
-const float CRITICAL_BAT_VOLTAGE = 3.2f;
+const float CRITICAL_BAT_VOLTAGE = 3.3f;
 const int CRITICAL_SLEEP_MINUTES = 60;
 // Each sleep is offset by a random amount up to +/- this, so nodes powered
 // up together do not keep transmitting at the same moment.
