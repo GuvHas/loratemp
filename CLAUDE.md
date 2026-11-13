@@ -13,6 +13,11 @@ pio run -e ttgo-lora32-v21    # firmware build
 
 CI runs both on every push and pull request. Run both before pushing.
 
+The ESP32 platform is pinned to 8.0.0 (Arduino core 3.x, ESP-IDF 5) in
+`platformio.ini`, the same version as loragateway. Before that it was unpinned,
+so the version depended on what the building machine had installed. A platform
+bump is its own change, and the owner tests it on the board.
+
 Four paths under `.pio/` are tracked, and every build modifies some of them.
 Stage files by name and leave `.pio/` out of commits.
 
