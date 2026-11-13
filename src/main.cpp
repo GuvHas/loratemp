@@ -9,7 +9,15 @@
 // ==========================================
 //              USER CONFIGURATION
 // ==========================================
-const char* NodeId = "GarageTemp";
+// Node id sent with every reading. Empty (the default) derives it from the
+// chip's MAC as "n-" + 6 hex digits, so every node can run the same
+// firmware; give it a readable name on the gateway's /devices page. Set a
+// fixed id here, or build with -D NODE_ID=\"GarageTemp\", to keep an id a
+// node already has in Home Assistant.
+#ifndef NODE_ID
+#define NODE_ID ""
+#endif
+const char* NodeId = NODE_ID;
 const int SLEEP_MINUTES = 5;
 const int DISPLAY_SECONDS = 2;       // How long to show data on OLED before sleep
 // Voltage threshold for the low battery warning (lb). The old, uncalibrated
@@ -123,7 +131,10 @@ void setup() {
   analogSetPinAttenuation(BAT_PIN, ADC_11db);
 
   bootCount++;
+  static char macNodeId[kMacNodeIdLength + 1];
+  const char* nodeId = resolveNodeId(NodeId, ESP.getEfuseMac(), macNodeId, sizeof(macNodeId));
   Serial.println("\n\n--- Boot #" + String(bootCount) + " ---");
+  Serial.println("Node id: " + String(nodeId));
 
   DhtSensor sensor(DHTPIN, DHTTYPE);
   LoRaRadioAdapter radio(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN, RST_PIN, DI0_PIN, BAND, LORA_SF,
@@ -134,7 +145,7 @@ void setup() {
   SerialLogger logger;
 
   NodeConfig cfg{
-      NodeId,             // nodeId
+      nodeId,             // nodeId
       DHT_MAX_RETRIES,    // dhtMaxRetries
       2000,               // dhtRetryDelayMs
       2000,               // dhtSettleDelayMs

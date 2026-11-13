@@ -70,6 +70,19 @@ int formatPayload(char* buf, size_t bufSize, const char* nodeId,
   return len;
 }
 
+const char* resolveNodeId(const char* configuredId, uint64_t efuseMac, char* out, size_t outSize) {
+  if (configuredId != nullptr && configuredId[0] != '\0') return configuredId;
+  if (outSize < kMacNodeIdLength + 1) {
+    if (outSize > 0) out[0] = '\0';
+    return out;
+  }
+  unsigned b3 = static_cast<unsigned>((efuseMac >> 24) & 0xFF);
+  unsigned b4 = static_cast<unsigned>((efuseMac >> 32) & 0xFF);
+  unsigned b5 = static_cast<unsigned>((efuseMac >> 40) & 0xFF);
+  snprintf(out, outSize, "n-%02x%02x%02x", b3, b4, b5);
+  return out;
+}
+
 const char* nodeFirmwareVersion() { return NODE_FW_VERSION; }
 
 namespace {

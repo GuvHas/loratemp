@@ -44,8 +44,9 @@ fresh start.
 ## Packet format
 
 By default (`BINARY_PAYLOAD = true`) the node sends a compact binary frame:
-24 bytes for a typical reading instead of about 83 bytes of JSON, which cuts
-airtime at SF9 from about 472 ms to 206 ms. This needs loragateway #29 or
+22 bytes for a typical reading with a MAC-derived id (24 with `GarageTemp`)
+instead of about 83 bytes of JSON, which cuts airtime at SF9 from about
+472 ms to 206 ms. This needs loragateway #29 or
 later. Set `BINARY_PAYLOAD = false` to send JSON instead:
 
 ```json
@@ -58,6 +59,24 @@ send carrying it succeeds, and once a day after that. The binary layout is
 documented in loragateway's CLAUDE.md ("Binary frame v1").
 
 Radio settings must match the gateway: 868 MHz, spreading factor 9, CRC on.
+
+## Node id
+
+By default a node identifies itself as `n-` plus the last 6 hex digits of
+its MAC address, for example `n-ddeeff` for MAC `aa:bb:cc:dd:ee:ff`. The id
+is printed on the serial console at every boot (`Node id: n-ddeeff`), and it
+appears under **Pending Devices** on the gateway's `/devices` page when the
+node first transmits. Give it a readable name there after approving it; the
+gateway uses that name in Home Assistant. Replacing a board gives the node a
+new id, so it shows up as a new device.
+
+To keep a fixed id instead, for example for a node that already has history
+in Home Assistant under that name, set `NodeId` in `src/main.cpp` or build
+with a flag:
+
+```sh
+PLATFORMIO_BUILD_FLAGS='-D NODE_ID=\"GarageTemp\"' pio run -e ttgo-lora32-v21 -t upload
+```
 
 ## In Home Assistant
 
@@ -96,22 +115,21 @@ Without installing anything, Espressif's browser flasher
 [esptool-js](https://espressif.github.io/esptool-js/) (Chrome or Edge) can
 write either file: connect, pick the file and enter its offset.
 
-> **The prebuilt firmware uses the default settings**, including
-> `NodeId = "GarageTemp"`. Every node needs its own `NodeId`, so for a
-> second node, or any other setting, change `src/main.cpp` and build it
-> yourself (see "Building and testing").
+The prebuilt firmware uses the default settings. Each node takes its id
+from its own MAC address (see "Node id" below), so the same file works for
+every node. To change any other setting, edit `src/main.cpp` and build it
+yourself (see "Building and testing").
 
 Each pull request builds the same files as a workflow artifact, on the run's
 page under **Artifacts** (needs a GitHub sign-in).
 
 ## Configuration
 
-Settings are constants at the top of `src/main.cpp`. Set `NodeId` per device
-before flashing.
+Settings are constants at the top of `src/main.cpp`.
 
 | Constant | Default | Meaning |
 | --- | --- | --- |
-| `NodeId` | `"GarageTemp"` | Node name, used as the device name in Home Assistant |
+| `NodeId` | `""` | Fixed node id; empty derives it from the MAC (see "Node id") |
 | `SLEEP_MINUTES` | 5 | Time between readings |
 | `SLEEP_JITTER_MS` | 5000 | Random offset applied to each sleep, ± |
 | `LOW_BAT_VOLTAGE` | 3.5 | Below this the packet carries `lb: 1` |
