@@ -140,7 +140,30 @@ float AdcPower::readBatteryVoltage() {
 
 // ---------- Esp32Clock ----------
 
+Esp32Clock::Esp32Clock(bool lightSleepWaits) : lightSleepWaits_(lightSleepWaits) {}
+
 void Esp32Clock::delayMs(uint32_t ms) { delay(ms); }
+
+void Esp32Clock::idleMs(uint32_t ms) {
+  // Entering and leaving light sleep costs about a millisecond; below this
+  // a plain delay is just as cheap.
+  const uint32_t kMinLightSleepMs = 10;
+  if (!lightSleepWaits_ || ms < kMinLightSleepMs) {
+    delay(ms);
+    return;
+  }
+  // The UART is clock-gated in light sleep; without a flush the tail of the
+  // last log line is lost.
+  Serial.flush();
+  // Light sleep keeps GPIO levels (so the DHT22's supply and data pull-up
+  // stay as they are), RAM, and SPI/I2C peripheral state. The radio and the
+  // OLED are separate chips and keep their own state. deepSleep() sets the
+  // timer wakeup again with its own duration, so leaving it armed is fine.
+  esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(ms) * 1000ULL);
+  if (esp_light_sleep_start() != ESP_OK) {
+    delay(ms);
+  }
+}
 
 void Esp32Clock::deepSleep(uint64_t micros) {
   esp_sleep_enable_timer_wakeup(micros);

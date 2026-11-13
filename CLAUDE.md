@@ -67,7 +67,10 @@ the pull request and leave it as a manual check for the owner.
 
 `setup()` increments `bootCount`, builds the adapters and calls `runNode()`:
 
-1. Read the DHT22, up to 3 attempts.
+1. Wait `dhtSettleDelayMs` for the DHT22 (it is not always powered), then
+   read it, up to 2 attempts 2 s apart. Waits that need time but not the
+   CPU (the settle, DHT retries, the OLED hold) use `IClock::idleMs()`, which
+   is light sleep on hardware. Short waits around the radio use `delayMs()`.
 2. Read the battery voltage.
 3. Start the radio. If that fails, sleep without sending.
 4. Increment `txCount`, build the payload, send it, up to 2 attempts. Each
@@ -76,7 +79,8 @@ the pull request and leave it as a manual check for the owner.
    if it does not arrive. The library's blocking `endPacket()` has no timeout,
    so do not go back to it.
 5. Show the reading on the display on the first boot, every 12th boot, or
-   when the sensor, the radio or the battery needs attention.
+   when the sensor or the radio failed. A low battery does not force it: that
+   would lengthen every wake when the battery can least afford it.
 6. Deep sleep for `SLEEP_MINUTES`.
 
 `NodeId`, the sleep interval and the radio settings are constants at the top of

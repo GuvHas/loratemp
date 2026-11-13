@@ -98,6 +98,4 @@ bool isScheduledDisplayBoot(uint32_t bootCount, int displayEveryN) {
   return bootCount == 1 || (displayEveryN > 0 && bootCount % displayEveryN == 0);
 }
 
-bool shouldForceDisplay(bool dhtOk, bool loraOk, bool lowBattery) {
-  return !dhtOk || !loraOk || lowBattery;
-}
+bool shouldForceDisplay(bool dhtOk, bool loraOk) { return !dhtOk || !loraOk; }
