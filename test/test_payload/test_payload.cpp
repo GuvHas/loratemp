@@ -130,23 +130,19 @@ void test_isScheduledDisplayBoot_always_true_when_every_boot_configured() {
 // ---------- shouldForceDisplay ----------
 
 void test_shouldForceDisplay_false_when_all_healthy() {
-  TEST_ASSERT_FALSE(shouldForceDisplay(true, true, false));
+  TEST_ASSERT_FALSE(shouldForceDisplay(true, true));
 }
 
 void test_shouldForceDisplay_true_on_dht_failure() {
-  TEST_ASSERT_TRUE(shouldForceDisplay(false, true, false));
+  TEST_ASSERT_TRUE(shouldForceDisplay(false, true));
 }
 
 void test_shouldForceDisplay_true_on_lora_failure() {
-  TEST_ASSERT_TRUE(shouldForceDisplay(true, false, false));
-}
-
-void test_shouldForceDisplay_true_on_low_battery() {
-  TEST_ASSERT_TRUE(shouldForceDisplay(true, true, true));
+  TEST_ASSERT_TRUE(shouldForceDisplay(true, false));
 }
 
 void test_shouldForceDisplay_true_when_everything_fails() {
-  TEST_ASSERT_TRUE(shouldForceDisplay(false, false, true));
+  TEST_ASSERT_TRUE(shouldForceDisplay(false, false));
 }
 
 int main(int argc, char** argv) {
@@ -171,7 +167,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_shouldForceDisplay_false_when_all_healthy);
   RUN_TEST(test_shouldForceDisplay_true_on_dht_failure);
   RUN_TEST(test_shouldForceDisplay_true_on_lora_failure);
-  RUN_TEST(test_shouldForceDisplay_true_on_low_battery);
   RUN_TEST(test_shouldForceDisplay_true_when_everything_fails);
 
   return UNITY_END();

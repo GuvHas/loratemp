@@ -57,8 +57,15 @@ class AdcPower : public IPower {
 
 class Esp32Clock : public IClock {
  public:
+  // lightSleepWaits false turns idleMs() back into a plain delay(), as a
+  // switch to rule light sleep out if a board misbehaves with it.
+  explicit Esp32Clock(bool lightSleepWaits);
   void delayMs(uint32_t ms) override;
+  void idleMs(uint32_t ms) override;
   void deepSleep(uint64_t micros) override;
+
+ private:
+  bool lightSleepWaits_;
 };
 
 class SerialLogger : public ILogger {

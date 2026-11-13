@@ -18,6 +18,10 @@ const int LORA_SF = 9;               // LoRa spreading factor (7-12, higher = mo
 const int LORA_TX_POWER = 14;        // TX power in dBm (2-20, lower = less range but saves battery)
 const int DISPLAY_EVERY_N = 12;      // Show OLED every Nth boot (12 = ~1hr at 5min sleep). 1 = always
 const int CPU_MHZ = 80;              // CPU frequency (80 is plenty for sensor work, default 240)
+// Spend the DHT settle time and the OLED hold in light sleep (~1 mA) instead
+// of a busy delay (~25 mA at 80 MHz). Set false to rule it out if the sensor
+// or display misbehaves on a board.
+const bool LIGHT_SLEEP_WAITS = true;
 
 // ==========================================
 //           HARDWARE PINS (TTGO V1.6)
@@ -39,7 +43,7 @@ const int CPU_MHZ = 80;              // CPU frequency (80 is plenty for sensor w
 // DHT Sensor
 #define DHTPIN   13
 #define DHTTYPE  DHT22
-#define DHT_MAX_RETRIES 3
+#define DHT_MAX_RETRIES 2  // 1 attempt + 1 retry; each retry waits 2 s for the DHT22
 
 // Store counters in RTC memory for backend gap detection across deep sleep cycles
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -70,7 +74,7 @@ void setup() {
                           LORA_TX_POWER, LED_PIN);
   Ssd1306Display display(0x3C, SDA_PIN, SCL_PIN);
   AdcPower power(BAT_PIN);
-  Esp32Clock clock;
+  Esp32Clock clock(LIGHT_SLEEP_WAITS);
   SerialLogger logger;
 
   NodeConfig cfg{
