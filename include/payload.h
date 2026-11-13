@@ -38,6 +38,27 @@ int formatPayload(char* buf, size_t bufSize, const char* nodeId,
                    float lowBatteryThreshold, uint32_t bootCount,
                    uint32_t txCount, bool includeSwVersion);
 
+// Builds a version-1 binary frame (layout in loragateway's CLAUDE.md,
+// "Binary frame v1"): 0xC1, flags, id length + id, uint24 boot and seq,
+// int16 t in 0.1 C (0x8000 = null), uint16 h in 0.1 % (0xFFFF = null),
+// uint8 v as (mV - 2000) / 10, then sw as length + ASCII when swVersion is
+// non-null and non-empty. Counters keep their low 24 bits; out-of-range
+// values are clamped. Returns the frame length, or -1 if nodeId is empty or
+// longer than 255 bytes, or the frame does not fit in bufSize.
+int encodeFrame(uint8_t* buf, size_t bufSize, const char* nodeId, const SensorReading& reading,
+                float batteryVoltage, float lowBatteryThreshold, uint32_t bootCount,
+                uint32_t txCount, const char* swVersion);
+
+// This build's firmware version (NODE_FW_VERSION, or "dev").
+const char* nodeFirmwareVersion();
+
+// Whether this send should carry the firmware version. The gateway never
+// acknowledges, so a send that "succeeded" may still have been lost: the
+// version goes out on every send until one succeeds, on the first 3 sends
+// after power-up (txCount 1 to 3), and once a day (every 1440 / sleepMinutes
+// sends). It costs a few bytes on a handful of packets a day.
+bool shouldReportVersion(bool versionReported, uint32_t txCount, int sleepMinutes);
+
 // Deep-sleep duration in microseconds, for esp_sleep_enable_timer_wakeup.
 uint64_t sleepMicros(int sleepMinutes);
 

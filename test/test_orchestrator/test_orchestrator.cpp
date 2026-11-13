@@ -240,7 +240,7 @@ void test_sw_field_omitted_from_payload_when_already_reported() {
   FakePower power;
   FakeClock clock;
   FakeLogger logger;
-  uint32_t txCount = 0;
+  uint32_t txCount = 10;  // past the first 3 sends, not a daily repeat
   bool versionReported = true;
 
   NodeOutcome outcome =
@@ -293,6 +293,100 @@ void test_version_reported_flag_unchanged_when_all_send_attempts_fail() {
   runNode(cfg, 2, txCount, versionReported, sensor, radio, display, power, clock, logger);
 
   TEST_ASSERT_FALSE(versionReported);
+}
+
+// The gateway never acknowledges, so a version that was "sent" may still
+// have been lost. It is repeated on the first 3 sends after power-up and
+// once a day, even after a send carrying it succeeded.
+void test_sw_repeated_on_first_three_sends_even_when_reported() {
+  NodeConfig cfg = defaultTestConfig();
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 2;  // this send is number 3
+  bool versionReported = true;
+
+  NodeOutcome outcome =
+      runNode(cfg, 3, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_NOT_NULL(strstr(outcome.payload, "\"sw\""));
+}
+
+void test_sw_repeated_once_a_day() {
+  NodeConfig cfg = defaultTestConfig();  // 5-minute sleep: 288 sends a day
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 287;
+  bool versionReported = true;
+
+  NodeOutcome outcome =
+      runNode(cfg, 300, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_NOT_NULL(strstr(outcome.payload, "\"sw\""));
+}
+
+// ---------- Binary frame ----------
+
+void test_binary_mode_sends_frame_bytes() {
+  NodeConfig cfg = defaultTestConfig();
+  cfg.binaryPayload = true;
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 10;
+  bool versionReported = true;
+
+  NodeOutcome outcome =
+      runNode(cfg, 12, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  TEST_ASSERT_TRUE(outcome.loraOk);
+  TEST_ASSERT_EQUAL(1, (int)radio.sentPayloads.size());
+  const std::string& frame = radio.sentPayloads[0];
+  // magic + flags + len + "TestNode" + 11 fixed bytes, no sw
+  TEST_ASSERT_EQUAL(3 + 8 + 11, (int)frame.size());
+  TEST_ASSERT_EQUAL(0xC1, (uint8_t)frame[0]);
+  TEST_ASSERT_EQUAL(0x00, (uint8_t)frame[1]);
+  TEST_ASSERT_EQUAL(11, (uint8_t)frame[14]);  // seq low byte, after id
+  // The log shows the frame as hex, since the bytes are not printable.
+  TEST_ASSERT_TRUE(logger.messages[0].rfind("Sending: frame C1000854657374", 0) == 0);
+}
+
+void test_binary_mode_includes_sw_and_marks_it_reported() {
+  NodeConfig cfg = defaultTestConfig();
+  cfg.binaryPayload = true;
+  FakeSensor sensor;
+  sensor.queuedReads = {{21.5f, 55.2f, true}};
+  FakeRadio radio;
+  radio.queuedSendResults = {true};
+  FakeDisplay display;
+  FakePower power;
+  FakeClock clock;
+  FakeLogger logger;
+  uint32_t txCount = 0;
+  bool versionReported = false;
+
+  runNode(cfg, 1, txCount, versionReported, sensor, radio, display, power, clock, logger);
+
+  const std::string& frame = radio.sentPayloads[0];
+  TEST_ASSERT_EQUAL(0x04, (uint8_t)frame[1] & 0x04);
+  TEST_ASSERT_EQUAL(3 + 8 + 11 + 1 + 3, (int)frame.size());  // sw "dev" in native tests
+  TEST_ASSERT_TRUE(versionReported);
 }
 
 // ---------- Display scheduling ----------
@@ -586,6 +680,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_version_reported_flag_set_after_successful_send_when_pending);
   RUN_TEST(test_sw_field_included_in_payload_when_not_yet_reported);
   RUN_TEST(test_sw_field_omitted_from_payload_when_already_reported);
+  RUN_TEST(test_sw_repeated_on_first_three_sends_even_when_reported);
+  RUN_TEST(test_sw_repeated_once_a_day);
+  RUN_TEST(test_binary_mode_sends_frame_bytes);
+  RUN_TEST(test_binary_mode_includes_sw_and_marks_it_reported);
   RUN_TEST(test_version_reported_flag_unchanged_when_lora_init_fails);
   RUN_TEST(test_version_reported_flag_unchanged_when_all_send_attempts_fail);
 

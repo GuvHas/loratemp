@@ -63,11 +63,11 @@ bool LoRaRadioAdapter::begin() {
 // with no timeout, and always returns 1. A radio that never reports it kept
 // the node awake until the battery was empty. This sends asynchronously and
 // waits for TX-done against a deadline instead, so send() can really fail.
-bool LoRaRadioAdapter::send(const char* msg) {
+bool LoRaRadioAdapter::send(const uint8_t* data, size_t len) {
   if (!LoRa.beginPacket()) {
     return false;  // radio still busy with an earlier transmission
   }
-  size_t len = LoRa.print(msg);
+  len = LoRa.write(data, len);  // what fit in the radio's FIFO
   uint32_t timeoutMs = loraTxTimeoutMs(len, spreadingFactor_, kLoRaBandwidthHz);
 
   s_txDone = false;

@@ -26,12 +26,17 @@ struct NodeConfig {
   // A fresh random number for this wake (esp_random() on hardware); fixed
   // in tests so sleep durations are predictable.
   uint32_t randomValue;
+  // Send the compact binary frame (see encodeFrame()) instead of JSON. The
+  // gateway must already decode it (loragateway #29 or later).
+  bool binaryPayload;
 };
 
 struct NodeOutcome {
   bool dhtOk;
   bool loraOk;
   bool displayed;
+  // What was sent, as text: the JSON payload, or "frame " plus the binary
+  // frame in hex. Used for logging and tests.
   char payload[192];
 };
 

@@ -1,6 +1,7 @@
 #include "orchestrator.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace {
 
@@ -64,9 +65,34 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
   // (see versionReported's doc comment on runNode()); decided once, before
   // the send attempts below, so a mid-cycle flip doesn't change what this
   // specific payload claims partway through its own retries.
-  bool reportVersion = !versionReported;
-  formatPayload(outcome.payload, sizeof(outcome.payload), cfg.nodeId, reading, voltage,
-                cfg.lowBatVoltage, bootCount, txCount, reportVersion);
+  bool reportVersion = shouldReportVersion(versionReported, txCount, cfg.sleepMinutes);
+
+  uint8_t packet[sizeof(outcome.payload)];
+  size_t packetLen = 0;
+  int frameLen = -1;
+  if (cfg.binaryPayload) {
+    frameLen = encodeFrame(packet, sizeof(packet), cfg.nodeId, reading, voltage,
+                           cfg.lowBatVoltage, bootCount, txCount,
+                           reportVersion ? nodeFirmwareVersion() : nullptr);
+  }
+  if (frameLen > 0) {
+    packetLen = static_cast<size_t>(frameLen);
+    // Log text: "frame " + hex, truncated to fit if the frame is very long.
+    static const char* kHex = "0123456789ABCDEF";
+    size_t pos = static_cast<size_t>(snprintf(outcome.payload, sizeof(outcome.payload), "frame "));
+    for (size_t i = 0; i < packetLen && pos + 2 < sizeof(outcome.payload); i++) {
+      outcome.payload[pos++] = kHex[packet[i] >> 4];
+      outcome.payload[pos++] = kHex[packet[i] & 0x0F];
+    }
+    outcome.payload[pos] = '\0';
+  } else {
+    // JSON, also the fallback if a binary frame cannot be built (an id
+    // longer than 255 bytes): formatPayload() always produces something.
+    int len = formatPayload(outcome.payload, sizeof(outcome.payload), cfg.nodeId, reading,
+                            voltage, cfg.lowBatVoltage, bootCount, txCount, reportVersion);
+    packetLen = len > 0 ? static_cast<size_t>(len) : 0;
+    memcpy(packet, outcome.payload, packetLen);
+  }
 
   char sendMsg[sizeof(outcome.payload) + 16];
   snprintf(sendMsg, sizeof(sendMsg), "Sending: %s", outcome.payload);
@@ -74,7 +100,7 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
 
   bool sent = false;
   for (int attempt = 0; attempt < cfg.loraMaxRetries; attempt++) {
-    sent = radio.send(outcome.payload);
+    sent = radio.send(packet, packetLen);
     if (sent) {
       break;
     }

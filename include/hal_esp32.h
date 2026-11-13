@@ -24,7 +24,7 @@ class LoRaRadioAdapter : public ILoRaRadio {
   LoRaRadioAdapter(int sckPin, int misoPin, int mosiPin, int ssPin, int rstPin, int di0Pin,
                     long band, int spreadingFactor, int txPowerDbm, int ledPin);
   bool begin() override;
-  bool send(const char* msg) override;
+  bool send(const uint8_t* data, size_t len) override;
   void end() override;
 
  private:

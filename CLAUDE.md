@@ -1,7 +1,8 @@
 # loratemp
 
 Firmware for a battery-powered sensor node (LilyGo TTGO T3 V1.6.1). Each wake-up
-it reads a DHT22, sends one JSON packet over LoRa and goes back to deep sleep.
+it reads a DHT22, sends one packet over LoRa (a binary frame, or JSON) and goes
+back to deep sleep.
 The receiving side is [GuvHas/loragateway](https://github.com/GuvHas/loragateway).
 
 ## Commands
@@ -25,7 +26,7 @@ Stage files by name and leave `.pio/` out of commits.
 
 | Path | What it holds |
 | --- | --- |
-| `include/payload.h`, `src/payload.cpp` | Pure functions: `formatPayload()`, sleep duration, display scheduling. No Arduino headers. |
+| `include/payload.h`, `src/payload.cpp` | Pure functions: `formatPayload()` (JSON), `encodeFrame()` (binary), sleep duration, display scheduling. No Arduino headers. |
 | `include/hal.h` | Interfaces for sensor, radio, display, power, clock and logger. |
 | `include/hal_esp32.h`, `src/hal_esp32.cpp` | ESP32 implementations of those interfaces. |
 | `include/orchestrator.h`, `src/orchestrator.cpp` | `runNode()`: one full wake cycle. Uses only `hal.h`. |
@@ -106,10 +107,11 @@ increment order without changing the gateway first.
 
 - `t` and `h` are `null` and `err` is `"dht"` when the sensor read failed.
 - `seq` is `txCount`. `lb` is 1 when the battery is below `LOW_BAT_VOLTAGE`.
-- `sw` is `NODE_FW_VERSION`. `runNode()` includes it while `versionReported`
-  is false and sets the flag only after a send carrying it succeeds. A failed
-  radio init or failed send leaves the flag false, so the next wake tries
-  again.
+- `sw` is `NODE_FW_VERSION`. `shouldReportVersion()` decides when it goes
+  out: on every send while `versionReported` is false (the flag is set only
+  after a send carrying it succeeds), on the first 3 sends after power-up, and
+  once a day. The gateway does not acknowledge, so the repeats cover a lost
+  packet.
 - `formatPayload()` falls back to a short `"err":"fmt"` payload if the full one
   does not fit, and to a fixed literal if that does not fit either. The buffer
   is 192 bytes and a LoRa packet holds at most 255.
@@ -117,10 +119,21 @@ increment order without changing the gateway first.
 The gateway rejects a payload whose known fields have the wrong type and
 ignores fields it does not know. Add fields gateway-first.
 
+### Binary frame
+
+With `BINARY_PAYLOAD` (the default) the node sends the same fields as a
+version-1 binary frame built by `encodeFrame()`: 24 bytes for a typical
+reading instead of ~83, about 206 ms on air at SF9 instead of 472 ms. The
+layout is defined in loragateway's CLAUDE.md ("Binary frame v1"). The hex
+vectors in `test/test_payload/test_payload.cpp` are copied from loragateway's
+`test_parser.cpp`; change both together. The gateway accepts both formats,
+so `BINARY_PAYLOAD = false` goes back to JSON. `ILoRaRadio::send()` takes
+bytes and a length because a frame contains NULs.
+
 Radio settings must match the gateway: 868 MHz, spreading factor 9, CRC on.
 
 ## Known gaps
 
 - A successful send means the radio finished transmitting. The gateway does
-  not acknowledge packets, so `sw` is lost if the gateway was off or out of
-  range for that one packet, and is not sent again until the next power loss.
+  not acknowledge packets, so a lost `sw` is only repeated on the first 3
+  sends and then once a day.
