@@ -83,11 +83,13 @@ class FakePower : public IPower {
 
 class FakeClock : public IClock {
  public:
-  std::vector<uint32_t> delaysMs;
+  std::vector<uint32_t> delaysMs;  // busy waits (CPU stays awake)
+  std::vector<uint32_t> idlesMs;   // low-power waits (light sleep on hardware)
   uint64_t sleptMicros = 0;
   int sleepCalls = 0;
 
   void delayMs(uint32_t ms) override { delaysMs.push_back(ms); }
+  void idleMs(uint32_t ms) override { idlesMs.push_back(ms); }
 
   void deepSleep(uint64_t micros) override {
     sleptMicros = micros;

@@ -46,5 +46,8 @@ uint64_t sleepMicros(int sleepMinutes);
 bool isScheduledDisplayBoot(uint32_t bootCount, int displayEveryN);
 
 // True if the display should be forced on outside its normal cadence
-// because something needs the operator's attention.
-bool shouldForceDisplay(bool dhtOk, bool loraOk, bool lowBattery);
+// because the sensor or the radio failed. A low battery deliberately does
+// not force it: that would add the display hold to every wake exactly when
+// the battery can least afford it. The "lb" flag still goes out every wake
+// and the scheduled display boots still show the warning.
+bool shouldForceDisplay(bool dhtOk, bool loraOk);
