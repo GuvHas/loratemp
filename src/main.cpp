@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_bt.h>
+#include <esp_task_wdt.h>
 
 #include "hal_esp32.h"
 #include "orchestrator.h"
@@ -45,6 +46,14 @@ const bool LIGHT_SLEEP_WAITS = true;
 #define DHTTYPE  DHT22
 #define DHT_MAX_RETRIES 2  // 1 attempt + 1 retry; each retry waits 2 s for the DHT22
 
+// Upper bound on one wake. A normal wake takes a few seconds (the worst
+// healthy case, with every DHT retry, both LoRa attempts timing out and the
+// display on, is about 10 s). If anything hangs past this, the task
+// watchdog panics and the chip restarts instead of staying awake until the
+// battery is empty. A restart re-initialises RTC memory, so the next packet
+// carries boot: 1 and the gateway treats it as a cold boot.
+#define WAKE_WATCHDOG_S 30
+
 // Store counters in RTC memory for backend gap detection across deep sleep cycles
 RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR uint32_t txCount = 0;
@@ -53,7 +62,29 @@ RTC_DATA_ATTR uint32_t txCount = 0;
 // node's firmware version yet -- see runNode()'s doc comment.
 RTC_DATA_ATTR bool versionReported = false;
 
+// Arduino core 3.x starts the task watchdog before setup(), so it is
+// reconfigured rather than initialised (same approach as loragateway).
+static void startWakeWatchdog() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  esp_task_wdt_config_t wdtConfig = {
+      .timeout_ms = WAKE_WATCHDOG_S * 1000,
+      .idle_core_mask = (1 << 0),
+      .trigger_panic = true,
+  };
+  if (esp_task_wdt_reconfigure(&wdtConfig) == ESP_ERR_INVALID_STATE) {
+    esp_task_wdt_init(&wdtConfig);
+  }
+#else
+  esp_task_wdt_init(WAKE_WATCHDOG_S, true);
+#endif
+  // Subscribe this task and never feed it: the whole wake must finish
+  // inside the timeout and end in deep sleep, which stops the watchdog.
+  esp_task_wdt_add(NULL);
+}
+
 void setup() {
+  startWakeWatchdog();
+
   // --- Power savings: disable unused radios and lower CPU ---
   setCpuFrequencyMhz(CPU_MHZ);
   WiFi.mode(WIFI_OFF);

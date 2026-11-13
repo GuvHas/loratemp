@@ -127,6 +127,38 @@ void test_isScheduledDisplayBoot_always_true_when_every_boot_configured() {
   TEST_ASSERT_TRUE(isScheduledDisplayBoot(99, 1));
 }
 
+// ---------- LoRa airtime and TX timeout ----------
+// Reference values from the Semtech SX127x airtime formula for this
+// project's settings: BW 125 kHz, CR 4/5, 8-symbol preamble, explicit
+// header, CRC on.
+
+void test_loraAirtimeMs_typical_json_payload_at_sf9() {
+  TEST_ASSERT_EQUAL(472, (int)loraAirtimeMs(83, 9, 125000));
+}
+
+void test_loraAirtimeMs_short_payload_at_sf9() {
+  TEST_ASSERT_EQUAL(206, (int)loraAirtimeMs(24, 9, 125000));
+}
+
+void test_loraAirtimeMs_at_sf7() {
+  TEST_ASSERT_EQUAL(169, (int)loraAirtimeMs(98, 7, 125000));
+}
+
+void test_loraAirtimeMs_uses_low_data_rate_optimize_at_sf12() {
+  // Symbol time 32.768 ms > 16 ms, so the formula's DE term is 1.
+  TEST_ASSERT_EQUAL(3449, (int)loraAirtimeMs(83, 12, 125000));
+}
+
+void test_loraTxTimeoutMs_is_twice_airtime_plus_margin() {
+  TEST_ASSERT_EQUAL(2 * 472 + 100, (int)loraTxTimeoutMs(83, 9, 125000));
+}
+
+void test_loraTxTimeoutMs_covers_largest_packet() {
+  // 255 bytes is the most a LoRa packet can hold; the timeout must still
+  // exceed its airtime, or every full-size send would be reported failed.
+  TEST_ASSERT_GREATER_THAN(loraAirtimeMs(255, 9, 125000), loraTxTimeoutMs(255, 9, 125000));
+}
+
 // ---------- shouldForceDisplay ----------
 
 void test_shouldForceDisplay_false_when_all_healthy() {
@@ -163,6 +195,13 @@ int main(int argc, char** argv) {
   RUN_TEST(test_isScheduledDisplayBoot_true_on_every_nth_boot);
   RUN_TEST(test_isScheduledDisplayBoot_false_between_scheduled_boots);
   RUN_TEST(test_isScheduledDisplayBoot_always_true_when_every_boot_configured);
+
+  RUN_TEST(test_loraAirtimeMs_typical_json_payload_at_sf9);
+  RUN_TEST(test_loraAirtimeMs_short_payload_at_sf9);
+  RUN_TEST(test_loraAirtimeMs_at_sf7);
+  RUN_TEST(test_loraAirtimeMs_uses_low_data_rate_optimize_at_sf12);
+  RUN_TEST(test_loraTxTimeoutMs_is_twice_airtime_plus_margin);
+  RUN_TEST(test_loraTxTimeoutMs_covers_largest_packet);
 
   RUN_TEST(test_shouldForceDisplay_false_when_all_healthy);
   RUN_TEST(test_shouldForceDisplay_true_on_dht_failure);
