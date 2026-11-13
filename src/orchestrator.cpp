@@ -4,13 +4,14 @@
 
 namespace {
 
-void goToSleep(IClock& clock, ILoRaRadio& radio, IDisplay& display, bool displayed,
-               int sleepMinutes) {
+void goToSleep(const NodeConfig& cfg, IClock& clock, ILoRaRadio& radio, IDisplay& display,
+               bool displayed, bool criticalBattery) {
   radio.end();
   if (displayed) {
     display.off();
   }
-  clock.deepSleep(sleepMicros(sleepMinutes));
+  int minutes = criticalBattery ? cfg.criticalSleepMinutes : cfg.sleepMinutes;
+  clock.deepSleep(jitteredSleepMicros(minutes, cfg.sleepJitterMs, cfg.randomValue));
 }
 
 }  // namespace
@@ -46,11 +47,15 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
 
   float voltage = power.readBatteryVoltage();
   bool lowBat = voltage < cfg.lowBatVoltage;
+  bool criticalBat = voltage < cfg.criticalBatVoltage;
+  if (criticalBat) {
+    logger.log("Battery critical, sleeping longer");
+  }
 
   if (!radio.begin()) {
     logger.log("LoRa Init Failed!");
     outcome.displayed = showDisplay;
-    goToSleep(clock, radio, display, showDisplay, cfg.sleepMinutes);
+    goToSleep(cfg, clock, radio, display, showDisplay, criticalBat);
     return outcome;
   }
 
@@ -99,6 +104,6 @@ NodeOutcome runNode(const NodeConfig& cfg, uint32_t bootCount, uint32_t& txCount
     clock.idleMs(cfg.displaySeconds * 1000);
   }
 
-  goToSleep(clock, radio, display, showDisplay, cfg.sleepMinutes);
+  goToSleep(cfg, clock, radio, display, showDisplay, criticalBat);
   return outcome;
 }

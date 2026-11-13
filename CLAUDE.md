@@ -81,7 +81,9 @@ the pull request and leave it as a manual check for the owner.
 5. Show the reading on the display on the first boot, every 12th boot, or
    when the sensor or the radio failed. A low battery does not force it: that
    would lengthen every wake when the battery can least afford it.
-6. Deep sleep for `SLEEP_MINUTES`.
+6. Deep sleep for `SLEEP_MINUTES`, offset by a random amount up to
+   `SLEEP_JITTER_MS` either way, or for `CRITICAL_SLEEP_MINUTES` when the
+   battery is below `CRITICAL_BAT_VOLTAGE`. The packet is still sent first.
 
 `NodeId`, the sleep interval and the radio settings are constants at the top of
 `src/main.cpp`. `NodeId` is set per device before flashing.

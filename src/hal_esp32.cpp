@@ -125,17 +125,17 @@ void Ssd1306Display::off() { display_.displayOff(); }
 AdcPower::AdcPower(int batPin) : batPin_(batPin) {}
 
 float AdcPower::readBatteryVoltage() {
-  // Average multiple ADC samples to reduce noise
-  const int samples = 10;
-  long total = 0;
+  // analogReadMilliVolts() applies the chip's eFuse ADC calibration. The old
+  // raw/4095 * 3.3 V conversion assumed a linear 3.3 V full scale, which is
+  // not the ESP32's real curve at 11 dB attenuation. A few back-to-back
+  // samples are enough to average out noise; no delay is needed between them.
+  const int samples = 4;
+  uint32_t totalMv = 0;
   for (int i = 0; i < samples; i++) {
-    total += analogRead(batPin_);
-    delay(2);
+    totalMv += analogReadMilliVolts(batPin_);
   }
-  float reading = (float)total / samples;
-
-  // 3.3V reference / 4095 steps * 2 (voltage divider ratio)
-  return (reading / 4095.0f) * 3.3f * 2.0f;
+  // The board's battery divider halves the voltage.
+  return (static_cast<float>(totalMv) / samples) * 2.0f / 1000.0f;
 }
 
 // ---------- Esp32Clock ----------

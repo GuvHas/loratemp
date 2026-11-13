@@ -12,7 +12,18 @@
 const char* NodeId = "GarageTemp";
 const int SLEEP_MINUTES = 5;
 const int DISPLAY_SECONDS = 2;       // How long to show data on OLED before sleep
-const float LOW_BAT_VOLTAGE = 3.3f;  // Voltage threshold for low battery warning
+// Voltage threshold for the low battery warning (lb). The old, uncalibrated
+// reading was about 0.25 V low (3.93 V vs 4.18 V calibrated on the same
+// battery), so the old 3.3 V threshold really fired around 3.5 V; 3.5 V keeps
+// the warning at the same real battery level.
+const float LOW_BAT_VOLTAGE = 3.5f;
+// Below this the node still sends (with lb:1), then sleeps CRITICAL_SLEEP_MINUTES
+// to protect a nearly empty LiPo from over-discharge.
+const float CRITICAL_BAT_VOLTAGE = 3.3f;
+const int CRITICAL_SLEEP_MINUTES = 60;
+// Each sleep is offset by a random amount up to +/- this, so nodes powered
+// up together do not keep transmitting at the same moment.
+const int SLEEP_JITTER_MS = 5000;
 const int LORA_SF = 9;               // LoRa spreading factor (7-12, higher = more range)
 
 // Power saving options
@@ -61,6 +72,16 @@ RTC_DATA_ATTR uint32_t txCount = 0;
 // the counters above. Tracks whether the gateway has actually received this
 // node's firmware version yet -- see runNode()'s doc comment.
 RTC_DATA_ATTR bool versionReported = false;
+
+// With WiFi and Bluetooth off, the hardware RNG has no RF entropy source and
+// esp_random() is only pseudo-random. Mixing in this chip's MAC guarantees
+// that two nodes woken in step still get different sleep offsets and drift
+// apart, which is all the jitter needs.
+static uint32_t wakeRandom() {
+  uint64_t mac = ESP.getEfuseMac();
+  return esp_random() ^ static_cast<uint32_t>(mac) ^ static_cast<uint32_t>(mac >> 32) ^
+         (bootCount * 2654435761u);
+}
 
 // Arduino core 3.x starts the task watchdog before setup(), so it is
 // reconfigured rather than initialised (same approach as loragateway).
@@ -119,6 +140,10 @@ void setup() {
       SLEEP_MINUTES,      // sleepMinutes
       DISPLAY_EVERY_N,    // displayEveryN
       DISPLAY_SECONDS,    // displaySeconds
+      CRITICAL_BAT_VOLTAGE,    // criticalBatVoltage
+      CRITICAL_SLEEP_MINUTES,  // criticalSleepMinutes
+      SLEEP_JITTER_MS,         // sleepJitterMs
+      wakeRandom(),            // randomValue
   };
 
   // runNode() emits its own diagnostics (via logger) before it sleeps, since

@@ -41,6 +41,10 @@ int formatPayload(char* buf, size_t bufSize, const char* nodeId,
 // Deep-sleep duration in microseconds, for esp_sleep_enable_timer_wakeup.
 uint64_t sleepMicros(int sleepMinutes);
 
+// sleepMicros(sleepMinutes) offset by a uniformly chosen amount in
+// [-jitterMaxMs, +jitterMaxMs], picked by randomValue. Never less than 1 s.
+uint64_t jitteredSleepMicros(int sleepMinutes, int jitterMaxMs, uint32_t randomValue);
+
 // Time on air in milliseconds (rounded) for one LoRa packet of payloadLen
 // bytes, using the Semtech SX127x formula with this project's fixed radio
 // settings: coding rate 4/5, 8-symbol preamble, explicit header, CRC on.
