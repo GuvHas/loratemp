@@ -4,6 +4,8 @@
 #include <LoRa.h>
 #include <SPI.h>
 
+#include <cmath>
+
 // ---------- DhtSensor ----------
 
 DhtSensor::DhtSensor(uint8_t pin, uint8_t type) : dht_(pin, type) {}
@@ -110,7 +112,7 @@ void Ssd1306Display::showReading(const SensorReading& reading, float voltage, bo
   display_.drawString(0, 0, sent ? "Sent OK:" : "TX FAILED:");
   if (reading.valid) {
     display_.drawString(0, 15, "T: " + String(reading.temperatureC, 1) + " \xb0" + "C");
-    display_.drawString(0, 30, "H: " + String(reading.humidityPct, 1) + " %");
+    display_.drawString(0, 30, "H: " + String(static_cast<long>(lroundf(reading.humidityPct))) + " %");
   } else {
     display_.drawString(0, 15, "DHT: FAILED");
   }
